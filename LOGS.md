@@ -1,0 +1,1 @@
+- jit `main` function which returns just 0
