@@ -1,1 +1,3 @@
 - jit `main` function which returns just 0
+- get length of jitted code
+    - `module.finalize_definitions()` generates code and needs to make read/write memory as executable, so SELinux (if exists) would not allow that; a workaround is to temporarily disable SELinux by `sudo setenforce 0`

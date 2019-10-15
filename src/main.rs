@@ -4,6 +4,12 @@ use cranelift::prelude::*;
 use cranelift_module::{Linkage, Module};
 use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
 
+use zydis::{
+	Formatter, Decoder, FormatterStyle, MachineMode, AddressWidth, OutputBuffer,
+};
+
+const PAGE_SIZE: usize = 1024;
+
 fn main() {
 	let builder =
 		SimpleJITBuilder::new(cranelift_module::default_libcall_names());
@@ -28,20 +34,41 @@ fn main() {
 	func_builder.seal_block(entry_block);
 	func_builder.finalize();
 
-    // push main into module
+	// push main into module
 	let func_id = module
 		.declare_function("main", Linkage::Export, &context.func.signature)
 		.expect("Failed to declare main function");
-	module
+	let func_len = module
 		.define_function(func_id, &mut context)
 		.expect("Failed to define main function");
 
-    module.clear_context(&mut context);
-    module.finalize_definitions();
+	module.clear_context(&mut context);
+	// SELinux would not allow that, temporarily disable with "sudo setenforce 0"
+	module.finalize_definitions();
 
-    let jitted_func = unsafe {
-        mem::transmute::<_,fn() -> i64>(module.get_finalized_function(func_id))
-    };
+	let func_addr = module.get_finalized_function(func_id);
+	let jitted_func = unsafe {
+		mem::transmute::<_, fn() -> i64>(func_addr)
+	};
 
-    jitted_func();
+	// run
+	assert_eq!(0, jitted_func());
+
+	// print assembly code
+
+	// let func_addr = module.get_finalized_function(func_id) as usize;
+	// let page_addr = func_addr & !(PAGE_SIZE - 1);
+	// let page_addr_up =
+	// 	((func_addr + func_len as usize) & !(PAGE_SIZE - 1)) + PAGE_SIZE;
+
+	// let jitted_func = unsafe {
+	// 	use libc::{mprotect, PROT_EXEC, PROT_READ};
+	// 	let i = mprotect(
+	// 		page_addr as _,
+	// 		page_addr_up - page_addr,
+	// 		PROT_READ,
+	// 	);
+	// 	println!("i = {}", i);
+	// 	mem::transmute::<_, fn() -> i64>(func_addr)
+	// };
 }
