@@ -1,14 +1,12 @@
-use std::mem;
+use std::{mem, slice};
 
 use cranelift::prelude::*;
 use cranelift_module::{Linkage, Module};
 use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
 
 use zydis::{
-	Formatter, Decoder, FormatterStyle, MachineMode, AddressWidth, OutputBuffer,
+	AddressWidth, Decoder, Formatter, FormatterStyle, MachineMode, OutputBuffer,
 };
-
-const PAGE_SIZE: usize = 1024;
 
 fn main() {
 	let builder =
@@ -46,29 +44,27 @@ fn main() {
 	// SELinux would not allow that, temporarily disable with "sudo setenforce 0"
 	module.finalize_definitions();
 
-	let func_addr = module.get_finalized_function(func_id);
-	let jitted_func = unsafe {
-		mem::transmute::<_, fn() -> i64>(func_addr)
-	};
+	let func_ptr = module.get_finalized_function(func_id);
+	let jitted_func = unsafe { mem::transmute::<_, fn() -> i64>(func_ptr) };
 
-	// run
+	// run & check
 	assert_eq!(0, jitted_func());
 
 	// print assembly code
+	let asm_formatter = Formatter::new(FormatterStyle::INTEL)
+		.expect("Failed to create assembly formatter");
+	let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64)
+		.expect("Failed to create assembly decoder");
+	let func_code = unsafe { slice::from_raw_parts(func_ptr, func_len as _) };
 
-	// let func_addr = module.get_finalized_function(func_id) as usize;
-	// let page_addr = func_addr & !(PAGE_SIZE - 1);
-	// let page_addr_up =
-	// 	((func_addr + func_len as usize) & !(PAGE_SIZE - 1)) + PAGE_SIZE;
+	let mut decoded_inst_buffer = [0u8; 200];
+	let mut decoded_inst_buffer =
+		OutputBuffer::new(&mut decoded_inst_buffer[..]);
 
-	// let jitted_func = unsafe {
-	// 	use libc::{mprotect, PROT_EXEC, PROT_READ};
-	// 	let i = mprotect(
-	// 		page_addr as _,
-	// 		page_addr_up - page_addr,
-	// 		PROT_READ,
-	// 	);
-	// 	println!("i = {}", i);
-	// 	mem::transmute::<_, fn() -> i64>(func_addr)
-	// };
+	for (inst, ip) in asm_decoder.instruction_iterator(func_code, 0) {
+		asm_formatter
+			.format_instruction(&inst, &mut decoded_inst_buffer, Some(ip), None)
+			.expect("Failed to format instruction");
+		println!("0x{:x}\t{}", ip, decoded_inst_buffer);
+	}
 }
