@@ -1,5 +1,5 @@
 [package]
-name = "cr9cc"
+name = "tocc"
 version = "0.1.0"
 authors = ["TA Thanh Dinh <tathanhdinh@gmail.com>"]
 description = "A type-obfuscated C compiler"
@@ -14,3 +14,5 @@ cranelift-module = "0.46.1"
 cranelift-simplejit = "0.46.1"
 libc = "0.2.64"
 zydis = "3.0.0"
+peg = "0.6.0"
+structopt = "0.3.3"
