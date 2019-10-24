@@ -78,17 +78,30 @@ fn compile(
 }
 
 fn translate(expr: &Expr, fb: &mut FunctionBuilder) -> Value {
+	use Expr::*;
 	match expr {
-		Expr::Add(lhs, rhs) => {
+		Add(lhs, rhs) => {
 			let lhs = translate(lhs, fb);
 			let rhs = translate(rhs, fb);
 			fb.ins().iadd(lhs, rhs)
 		}
 
-		Expr::Sub(lhs, rhs) => {
+		Sub(lhs, rhs) => {
 			let lhs = translate(lhs, fb);
 			let rhs = translate(rhs, fb);
 			fb.ins().isub(lhs, rhs)
+		}
+
+		Mul(lhs, rhs) => {
+			let lhs = translate(lhs, fb);
+			let rhs = translate(rhs, fb);
+			fb.ins().imul(lhs, rhs)
+		}
+
+		Div(lhs, rhs) => {
+			let lhs = translate(lhs, fb);
+			let rhs = translate(rhs, fb);
+			fb.ins().sdiv(lhs, rhs)
 		}
 
 		Expr::Val(v) => fb.ins().iconst(types::I64, *v),
@@ -154,7 +167,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_simple_expr() {
+	fn expr_simple() {
 		let builder =
 			SimpleJITBuilder::new(cranelift_module::default_libcall_names());
 		let mut module = Module::<SimpleJITBackend>::new(builder);
@@ -178,14 +191,59 @@ mod tests {
 			&mut builder_context,
 		);
 		assert_eq!(unsafe { func_ptr() }, -8);
+	}
+
+	#[test]
+	fn expr_with_parens() {
+		let builder =
+			SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+		let mut module = Module::<SimpleJITBackend>::new(builder);
+		let mut context = module.make_context();
+		let mut builder_context = FunctionBuilderContext::new();
 
 		let (func_ptr, _) = compile(
 			"-(5 - 9) + 10 + (4 - 27)",
-			"test2",
+			"test0",
 			&mut module,
 			&mut context,
 			&mut builder_context,
 		);
 		assert_eq!(unsafe { func_ptr() }, -9);
+
+		let (func_ptr, _) = compile(
+			"(3 + 4) - (10 - (7 - 1))",
+			"test1",
+			&mut module,
+			&mut context,
+			&mut builder_context,
+		);
+		assert_eq!(unsafe { func_ptr() }, 3);
+	}
+
+	#[test]
+	fn expr_with_mul_div() {
+		let builder =
+			SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+		let mut module = Module::<SimpleJITBackend>::new(builder);
+		let mut context = module.make_context();
+		let mut builder_context = FunctionBuilderContext::new();
+
+		let (func_ptr, _) = compile(
+			"(1 + 5) * (9 - 6)",
+			"test0",
+			&mut module,
+			&mut context,
+			&mut builder_context,
+		);
+		assert_eq!(unsafe { func_ptr() }, 18);
+
+		let (func_ptr, _) = compile(
+			"(7 / 2) + (9 - 6 * 3)",
+			"test1",
+			&mut module,
+			&mut context,
+			&mut builder_context,
+		);
+		assert_eq!(unsafe { func_ptr() }, -6);
 	}
 }
