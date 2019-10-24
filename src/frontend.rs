@@ -14,7 +14,9 @@ peg::parser! {pub grammar arithmetic() for str {
 	pub rule evaluate() -> Expr = precedence!{
 		a:(@) "+" b:@ { Expr::Add(Box::new(a), Box::new(b)) }
 		a:(@) "-" b:@ { Expr::Sub(Box::new(a), Box::new(b)) }
+		blanks() "-" blanks() b:@ { Expr::Sub(Box::new(Expr::Val(0)), Box::new(b)) }
 		--
+		blanks() "(" blanks() e:evaluate() blanks() ")" blanks() { e }
 		v:literal() { v }
 	}
 }}

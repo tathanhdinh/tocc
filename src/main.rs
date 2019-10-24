@@ -33,16 +33,15 @@ fn compile(
 	module: &mut Module<SimpleJITBackend>,
 	context: &mut Context,
 	function_builder_context: &mut FunctionBuilderContext,
-) -> (Box<fn() -> i64>, usize) {
-	// signature of main
+) -> (Box<unsafe extern "C" fn() -> i64>, usize) {
+	// signature of function
 	context
 		.func
 		.signature
 		.returns
 		.push(AbiParam::new(types::I64));
 
-	// layout of main
-	// let mut func_builder_context = FunctionBuilderContext::new();
+	// layout
 	let mut func_builder =
 		FunctionBuilder::new(&mut context.func, function_builder_context);
 	let entry_block = func_builder.create_ebb();
@@ -54,11 +53,11 @@ fn compile(
 	let expr_value = translate(&expr, &mut func_builder);
 	func_builder.ins().return_(&[expr_value]);
 
-	// finalize main
+	// finalize function
 	func_builder.seal_block(entry_block);
 	func_builder.finalize();
 
-	// push main into module
+	// push function into module
 	let func_id = module
 		.declare_function(name, Linkage::Export, &context.func.signature)
 		.expect("Failed to declare main function");
@@ -67,9 +66,12 @@ fn compile(
 		.expect("Failed to define main function");
 
 	module.clear_context(context);
-	module.finalize_definitions(); // SELinux would not allow that, temporarily disable with "sudo setenforce 0"
+	// SELinux may not allow that, if it is the case,
+	// temporarily disable with "sudo setenforce 0"
+	module.finalize_definitions();
 
 	let func_ptr = module.get_finalized_function(func_id);
+	// this is really a function pointer, not closure
 	let func_ptr = unsafe { mem::transmute::<_, _>(func_ptr) };
 
 	(Box::new(func_ptr), func_len as _)
@@ -115,7 +117,7 @@ fn main() {
 	let func_ptr = *func_ptr;
 
 	// call jitted function
-	println!("result: {}", func_ptr());
+	println!("result: {}", unsafe { func_ptr() });
 
 	// print assembly code
 	let asm_formatter = {
@@ -152,7 +154,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_expr() {
+	fn test_simple_expr() {
 		let builder =
 			SimpleJITBuilder::new(cranelift_module::default_libcall_names());
 		let mut module = Module::<SimpleJITBackend>::new(builder);
@@ -166,7 +168,7 @@ mod tests {
 			&mut context,
 			&mut builder_context,
 		);
-		assert_eq!(func_ptr(), 3);
+		assert_eq!(unsafe { func_ptr() }, 3);
 
 		let (func_ptr, _) = compile(
 			"2 - 3 - 7",
@@ -175,6 +177,15 @@ mod tests {
 			&mut context,
 			&mut builder_context,
 		);
-		assert_eq!(func_ptr(), -8);
+		assert_eq!(unsafe { func_ptr() }, -8);
+
+		let (func_ptr, _) = compile(
+			"-(5 - 9) + 10 + (4 - 27)",
+			"test2",
+			&mut module,
+			&mut context,
+			&mut builder_context,
+		);
+		assert_eq!(unsafe { func_ptr() }, -9);
 	}
 }
