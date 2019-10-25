@@ -13,7 +13,10 @@ use zydis::{
 use structopt::StructOpt;
 
 mod frontend;
-use frontend::{parser, ArithmeticExpr, Stmt};
+use frontend::{
+	c11, parser, ArithmeticExpr, FunctionDefinition, Identifier, Statement,
+	Stmt, TranslationUnit, TypeSpecifier,
+};
 
 #[derive(StructOpt)]
 #[structopt(name = "tocc", about = "A type-obfuscated C compiler")]
@@ -48,7 +51,8 @@ fn compile(
 	func_builder.switch_to_block(entry_block);
 
 	// compile input arithmetic expression
-	let Stmt::Return(expr) = parser::stmt(&input).expect("Failed to parse input expression");
+	let Stmt::Return(expr) =
+		parser::stmt(&input).expect("Failed to parse input expression");
 	// let expr =
 	// 	parser::arithmetic_expr(&input).expect("Failed to parse input expression");
 	let expr_value = translate(&expr, &mut func_builder);
@@ -246,5 +250,21 @@ mod tests {
 			&mut builder_context,
 		);
 		assert_eq!(unsafe { func_ptr() }, -6);
+	}
+
+	#[test]
+	fn main_no_argc_argv_return_only() {
+		let c_code = std::fs::read_to_string("tests/0.c")
+			.expect("Failed to read C file");
+		if let Ok(TranslationUnit::FunctionDefinition(FunctionDefinition {
+			specifier: TypeSpecifier::Int,
+			declarator: Identifier(i),
+			body: Statement::Compound(_),
+		})) = c11::parse(&c_code)
+		{
+			assert_eq!(i, "main")
+		} else {
+			assert!(false)
+		}
 	}
 }
