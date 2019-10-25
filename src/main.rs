@@ -48,7 +48,7 @@ fn compile(
 	func_builder.switch_to_block(entry_block);
 
 	// compile input arithmetic expression
-	let Stmt::Ret(expr) = parser::stmt(&input).expect("Failed to parse input expression");
+	let Stmt::Return(expr) = parser::stmt(&input).expect("Failed to parse input expression");
 	// let expr =
 	// 	parser::arithmetic_expr(&input).expect("Failed to parse input expression");
 	let expr_value = translate(&expr, &mut func_builder);
