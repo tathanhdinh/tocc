@@ -1,27 +1,34 @@
 // AST
-pub enum Expr {
-	Add(Box<Expr>, Box<Expr>),
-	Sub(Box<Expr>, Box<Expr>),
-	Mul(Box<Expr>, Box<Expr>),
-	Div(Box<Expr>, Box<Expr>),
+pub enum Stmt {
+	Ret(ArithmeticExpr),
+}
+
+pub enum ArithmeticExpr {
+	Add(Box<ArithmeticExpr>, Box<ArithmeticExpr>),
+	Sub(Box<ArithmeticExpr>, Box<ArithmeticExpr>),
+	Mul(Box<ArithmeticExpr>, Box<ArithmeticExpr>),
+	Div(Box<ArithmeticExpr>, Box<ArithmeticExpr>),
 	Val(i64),
 }
 
-peg::parser! {pub grammar arithmetic() for str {
+peg::parser! {pub grammar parser() for str {
 	rule blanks() = [' '|'\t']*
 
-	rule literal() -> Expr
-		= blanks() v:$(['0'..='9']+) blanks() { Expr::Val(v.parse().unwrap()) }
+	rule literal() -> ArithmeticExpr
+		= blanks() v:$(['0'..='9']+) blanks() { ArithmeticExpr::Val(v.parse().unwrap()) }
 
-	pub rule evaluate() -> Expr = precedence!{
-		a:(@) "+" b:@ { Expr::Add(Box::new(a), Box::new(b)) }
-		a:(@) "-" b:@ { Expr::Sub(Box::new(a), Box::new(b)) }
-		blanks() "-" blanks() b:@ { Expr::Sub(Box::new(Expr::Val(0)), Box::new(b)) }
+	pub rule arithmetic_expr() -> ArithmeticExpr = precedence!{
+		a:(@) "+" b:@ { ArithmeticExpr::Add(Box::new(a), Box::new(b)) }
+		a:(@) "-" b:@ { ArithmeticExpr::Sub(Box::new(a), Box::new(b)) }
+		blanks() "-" blanks() b:@ { ArithmeticExpr::Sub(Box::new(ArithmeticExpr::Val(0)), Box::new(b)) }
 		--
-		a:(@) "*" b:@ { Expr::Mul(Box::new(a), Box::new(b)) }
-		a:(@) "/" b:@ { Expr::Div(Box::new(a), Box::new(b)) }
+		a:(@) "*" b:@ { ArithmeticExpr::Mul(Box::new(a), Box::new(b)) }
+		a:(@) "/" b:@ { ArithmeticExpr::Div(Box::new(a), Box::new(b)) }
 		--
-		blanks() "(" blanks() e:evaluate() blanks() ")" blanks() { e }
+		blanks() "(" blanks() e:arithmetic_expr() blanks() ")" blanks() { e }
 		v:literal() { v }
 	}
+
+	pub rule stmt() -> Stmt
+		= blanks() "return" blanks() a:arithmetic_expr() ";" { Stmt::Ret(a) }
 }}

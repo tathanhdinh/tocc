@@ -13,7 +13,7 @@ use zydis::{
 use structopt::StructOpt;
 
 mod frontend;
-use frontend::{arithmetic, Expr};
+use frontend::{parser, ArithmeticExpr, Stmt};
 
 #[derive(StructOpt)]
 #[structopt(name = "tocc", about = "A type-obfuscated C compiler")]
@@ -48,8 +48,9 @@ fn compile(
 	func_builder.switch_to_block(entry_block);
 
 	// compile input arithmetic expression
-	let expr =
-		arithmetic::evaluate(&input).expect("Failed to parse input expression");
+	let Stmt::Ret(expr) = parser::stmt(&input).expect("Failed to parse input expression");
+	// let expr =
+	// 	parser::arithmetic_expr(&input).expect("Failed to parse input expression");
 	let expr_value = translate(&expr, &mut func_builder);
 	func_builder.ins().return_(&[expr_value]);
 
@@ -77,8 +78,8 @@ fn compile(
 	(Box::new(func_ptr), func_len as _)
 }
 
-fn translate(expr: &Expr, fb: &mut FunctionBuilder) -> Value {
-	use Expr::*;
+fn translate(expr: &ArithmeticExpr, fb: &mut FunctionBuilder) -> Value {
+	use ArithmeticExpr::*;
 	match expr {
 		Add(lhs, rhs) => {
 			let lhs = translate(lhs, fb);
@@ -104,7 +105,7 @@ fn translate(expr: &Expr, fb: &mut FunctionBuilder) -> Value {
 			fb.ins().sdiv(lhs, rhs)
 		}
 
-		Expr::Val(v) => fb.ins().iconst(types::I64, *v),
+		ArithmeticExpr::Val(v) => fb.ins().iconst(types::I64, *v),
 	}
 }
 
@@ -175,7 +176,7 @@ mod tests {
 		let mut builder_context = FunctionBuilderContext::new();
 
 		let (func_ptr, _) = compile(
-			"1 + 5 - 3",
+			"return 1 + 5 - 3;",
 			"test0",
 			&mut module,
 			&mut context,
@@ -184,7 +185,7 @@ mod tests {
 		assert_eq!(unsafe { func_ptr() }, 3);
 
 		let (func_ptr, _) = compile(
-			"2 - 3 - 7",
+			"return 2 - 3 - 7;",
 			"test1",
 			&mut module,
 			&mut context,
@@ -202,7 +203,7 @@ mod tests {
 		let mut builder_context = FunctionBuilderContext::new();
 
 		let (func_ptr, _) = compile(
-			"-(5 - 9) + 10 + (4 - 27)",
+			"return -(5 - 9) + 10 + (4 - 27);",
 			"test0",
 			&mut module,
 			&mut context,
@@ -211,7 +212,7 @@ mod tests {
 		assert_eq!(unsafe { func_ptr() }, -9);
 
 		let (func_ptr, _) = compile(
-			"(3 + 4) - (10 - (7 - 1))",
+			"return (3 + 4) - (10 - (7 - 1));",
 			"test1",
 			&mut module,
 			&mut context,
@@ -229,7 +230,7 @@ mod tests {
 		let mut builder_context = FunctionBuilderContext::new();
 
 		let (func_ptr, _) = compile(
-			"(1 + 5) * (9 - 6)",
+			"return (1 + 5) * (9 - 6);",
 			"test0",
 			&mut module,
 			&mut context,
@@ -238,7 +239,7 @@ mod tests {
 		assert_eq!(unsafe { func_ptr() }, 18);
 
 		let (func_ptr, _) = compile(
-			"(7 / 2) + (9 - 6 * 3)",
+			"return (7 / 2) + (9 - 6 * 3);",
 			"test1",
 			&mut module,
 			&mut context,
