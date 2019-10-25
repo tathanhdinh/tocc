@@ -17,3 +17,8 @@ libc = "0.2.65"
 zydis = "3.0.0"
 peg = "0.6.0"
 structopt = "0.3.3"
+# clang-rs = { git = "https://github.com/KyleMayes/clang-rs.git" }
+
+[dependencies.clang]
+git = "https://github.com/KyleMayes/clang-rs.git"
+features = ["clang_8_0"]
