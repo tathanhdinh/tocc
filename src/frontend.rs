@@ -1,6 +1,6 @@
 // AST
 pub enum Stmt {
-	Ret(ArithmeticExpr),
+	Return(ArithmeticExpr),
 }
 
 pub enum ArithmeticExpr {
@@ -30,5 +30,5 @@ peg::parser! {pub grammar parser() for str {
 	}
 
 	pub rule stmt() -> Stmt
-		= blanks() "return" blanks() a:arithmetic_expr() ";" { Stmt::Ret(a) }
+		= blanks() "return" blanks() a:arithmetic_expr() ";" { Stmt::Return(a) }
 }}
