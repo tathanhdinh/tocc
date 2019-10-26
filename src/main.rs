@@ -109,58 +109,67 @@ fn translate(expr: &ArithmeticExpr, fb: &mut FunctionBuilder) -> Value {
 	}
 }
 
+fn compile_langc() {
+	use lang_c as langc;
+	use langc::driver;
+	let langc_config = driver::Config::default();
+	let tu = driver::parse(&langc_config, "tests/0.c").unwrap();
+	println!("{:?}", &tu);
+}
+
 fn main() {
-	let input_expr = {
-		let opt = Opt::from_args();
-		opt.expr
-	};
+	compile_langc();
+	// let input_expr = {
+	// 	let opt = Opt::from_args();
+	// 	opt.expr
+	// };
 
-	let builder =
-		SimpleJITBuilder::new(cranelift_module::default_libcall_names());
-	let mut module = Module::<SimpleJITBackend>::new(builder);
-	let mut context = module.make_context();
-	let mut builder_context = FunctionBuilderContext::new();
+	// let builder =
+	// 	SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+	// let mut module = Module::<SimpleJITBackend>::new(builder);
+	// let mut context = module.make_context();
+	// let mut builder_context = FunctionBuilderContext::new();
 
-	let (func_ptr, func_len) = compile(
-		&input_expr,
-		"main",
-		&mut module,
-		&mut context,
-		&mut builder_context,
-	);
-	let func_ptr = *func_ptr;
+	// let (func_ptr, func_len) = compile(
+	// 	&input_expr,
+	// 	"main",
+	// 	&mut module,
+	// 	&mut context,
+	// 	&mut builder_context,
+	// );
+	// let func_ptr = *func_ptr;
 
-	// call jitted function
-	println!("result: {}", unsafe { func_ptr() });
+	// // call jitted function
+	// println!("result: {}", unsafe { func_ptr() });
 
-	// print assembly code
-	let asm_formatter = {
-		let mut fm = Formatter::new(FormatterStyle::INTEL)
-			.expect("Failed to create assembly formatter");
-		fm.set_property(FormatterProperty::HexUppercase(false))
-			.expect("Failed to set assembly formatter property");
-		fm
-	};
+	// // print assembly code
+	// let asm_formatter = {
+	// 	let mut fm = Formatter::new(FormatterStyle::INTEL)
+	// 		.expect("Failed to create assembly formatter");
+	// 	fm.set_property(FormatterProperty::HexUppercase(false))
+	// 		.expect("Failed to set assembly formatter property");
+	// 	fm
+	// };
 
-	let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64)
-		.expect("Failed to create assembly decoder");
-	let func_code = unsafe {
-		slice::from_raw_parts(
-			mem::transmute::<_, *const u8>(func_ptr),
-			func_len as _,
-		)
-	};
+	// let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64)
+	// 	.expect("Failed to create assembly decoder");
+	// let func_code = unsafe {
+	// 	slice::from_raw_parts(
+	// 		mem::transmute::<_, *const u8>(func_ptr),
+	// 		func_len as _,
+	// 	)
+	// };
 
-	let mut decoded_inst_buffer = [0u8; 200];
-	let mut decoded_inst_buffer =
-		OutputBuffer::new(&mut decoded_inst_buffer[..]);
+	// let mut decoded_inst_buffer = [0u8; 200];
+	// let mut decoded_inst_buffer =
+	// 	OutputBuffer::new(&mut decoded_inst_buffer[..]);
 
-	for (inst, ip) in asm_decoder.instruction_iterator(func_code, 0) {
-		asm_formatter
-			.format_instruction(&inst, &mut decoded_inst_buffer, Some(ip), None)
-			.expect("Failed to format instruction");
-		println!("0x{:x}\t{}", ip, decoded_inst_buffer);
-	}
+	// for (inst, ip) in asm_decoder.instruction_iterator(func_code, 0) {
+	// 	asm_formatter
+	// 		.format_instruction(&inst, &mut decoded_inst_buffer, Some(ip), None)
+	// 		.expect("Failed to format instruction");
+	// 	println!("0x{:x}\t{}", ip, decoded_inst_buffer);
+	// }
 }
 
 #[cfg(test)]
