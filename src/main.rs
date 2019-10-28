@@ -48,7 +48,8 @@ fn compile(
 	func_builder.switch_to_block(entry_block);
 
 	// compile input arithmetic expression
-	let Stmt::Return(expr) = parser::stmt(&input).expect("Failed to parse input expression");
+	let Stmt::Return(expr) =
+		parser::stmt(&input).expect("Failed to parse input expression");
 	// let expr =
 	// 	parser::arithmetic_expr(&input).expect("Failed to parse input expression");
 	let expr_value = translate(&expr, &mut func_builder);
@@ -109,29 +110,44 @@ fn translate(expr: &ArithmeticExpr, fb: &mut FunctionBuilder) -> Value {
 	}
 }
 
-fn print_entity(e: &clang::Entity) {
-	println!("{:?}", e);
-	for ce in e.get_children() {
-		print_entity(&ce);
-	}
-}
+// fn print_entity(e: &clang::Entity) {
+// 	println!("{:?}", e);
+// 	for ce in e.get_children() {
+// 		print_entity(&ce);
+// 	}
+// }
 
-fn clang_translate() {
-	use clang::{Clang, Index};
+// fn clang_translate() {
+// 	use clang::{Clang, Index};
 
-	let cl = Clang::new().unwrap();
-	let idx = Index::new(&cl, false, false);
-	let tu = idx.parser("tests/0.c").parse().unwrap();
+// 	let cl = Clang::new().unwrap();
+// 	let idx = Index::new(&cl, false, false);
+// 	let tu = idx.parser("tests/0.c").parse().unwrap();
 
-	print_entity(&tu.get_entity());
+// 	print_entity(&tu.get_entity());
+// }
 
-	// println!("{:?}", tu.get_entity());
-	// for e in tu.get_entity().get_children() {
-	// 	println!("{:?}", e);
-	// 	for ce in e.get_children() {
-	// 		println!("{:?}", ce);
-	// 	}
-	// }
+use clang::{Clang, Entity, EntityVisitResult, Index};
+use std::iter::repeat;
+use std::path::PathBuf;
+fn compile_(cl: &Clang, file: impl Into<PathBuf>) {
+	let index = Index::new(&cl, true, false);
+	let translation_unit = index.parser(file).parse().unwrap();
+	let main_entity = translation_unit.get_entity();
+	let ast_visitor = |current: Entity, parent| {
+		println!("parent: {:?}", parent);
+		println!("\tcurrent: {:?}", current);
+		// let pretty_printer = current.get_pretty_printer();
+		// let ident: String = repeat(' ')
+		// 	.take(pretty_printer.get_indentation_amount() as _)
+		// 	.collect();
+		// println!("{}{:?}", ident, current);
+		// let ident: Vec<_> = repeat(" ").collect();
+		// let ident = ident.join(" ");
+
+		EntityVisitResult::Recurse
+	};
+	main_entity.visit_children(ast_visitor);
 }
 
 fn main() {
@@ -140,7 +156,10 @@ fn main() {
 	// 	opt.expr
 	// };
 
-	clang_translate();
+	// clang_translate();
+
+	let cl = Clang::new().unwrap();
+	compile_(&cl, "tests/0.c");
 
 	// let builder =
 	// 	SimpleJITBuilder::new(cranelift_module::default_libcall_names());

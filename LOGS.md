@@ -1,2 +1,8 @@
 - get length of jitted code: `module.finalize_definitions()` generates code and needs to make read/write memory as executable, so SELinux (if exists) would not allow that; a workaround is to temporarily disable SELinux by `sudo setenforce 0`
 - get AST of a program (e.g. `0.c`): `clang -cc1 -ast_dump 0.c`
+- `libclang` tutorials: [clang tutorial](http://swtv.kaist.ac.kr/courses/cs453-fall13/Clang%20tutorial%20v4.pdf), [libclang](https://llvm.org/devmtg/2010-11/Gregor-libclang.pdf)
+- AST traversal: [intro](https://github.com/llvm-mirror/clang/blob/140c81ebe12daaf9b4caacf171ba7a85b2fc76ed/docs/IntroductionToTheClangAST.rst) [baby steps](https://bastian.rieck.ru/blog/posts/2015/baby_steps_libclang_ast/), [understanding clang ast](https://jonasdevlieghere.com/understanding-the-clang-ast/)
+- code generation: [cool](http://www.cs.virginia.edu/~jad5ju/cs4501/Code%20Generation.pdf), [code transformation and analysis](https://llvm.org/devmtg/2017-06/2-Hal-Finkel-LLVM-2017.pdf)
+- internal: [clang internal](https://cppdepend.com/blog/?p=321), [Life of an instruction in LLVM ](https://eli.thegreenplace.net/2012/11/24/life-of-an-instruction-in-llvm/), [A deeper look into the LLVM code generator](https://eli.thegreenplace.net/2013/02/25/a-deeper-look-into-the-llvm-code-generator-part-1), [LLVM IR generation](https://clang.llvm.org/hacking.html)
+
+- books: *Getting Started with LLVM Core Libraries*
