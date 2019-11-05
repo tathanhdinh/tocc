@@ -1,3 +1,12 @@
+pub enum UnaryOperator {
+	Neg,
+}
+
+pub struct UnaryOperatorExpression {
+	pub op: UnaryOperator,
+	pub rhs: Box<Expression>,
+}
+
 pub enum BinaryOperator {
 	Mul,
 	Div,
@@ -18,6 +27,7 @@ pub struct BinaryOperatorExpression {
 }
 
 pub enum Expression {
+	UnaryOperatorExpr(UnaryOperatorExpression),
 	BinaryOperatorExpr(BinaryOperatorExpression),
 	ConstantExpr(Constant),
 }
@@ -77,6 +87,12 @@ peg::parser! {pub grammar parser() for str {
 				op: BinaryOperator::Sub,
 				lhs: Box::new(a),
 				rhs: Box::new(b)
+			})
+		}
+		"-" blank()* a:@ {
+			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
+				op: UnaryOperator::Neg,
+				rhs: Box::new(a),
 			})
 		}
 		--
