@@ -69,7 +69,7 @@ mod tests {
 	fn compile_0() {
 		let tu = frontend::ast("tests/0.c");
 		let (fptr, _) = backend::compile(&tu);
-		assert_eq!(unsafe { fptr() }, 3);
+		assert_eq!(unsafe { fptr() }, 12);
 	}
 
 	#[test]

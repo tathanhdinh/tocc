@@ -1,7 +1,6 @@
 // Front-end:
-//  - lexical analysis
-//  - syntax analysis
-//  - type checking
+//  - lexer/parser
+//  - semantics analysis
 
 use std::{fs, path::Path};
 

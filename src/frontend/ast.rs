@@ -12,6 +12,7 @@ pub enum BinaryOperator {
 	Div,
 	Add,
 	Sub,
+	Asg,
 }
 
 pub struct Integer(pub i64);
@@ -30,11 +31,25 @@ pub enum Expression {
 	UnaryOperatorExpr(UnaryOperatorExpression),
 	BinaryOperatorExpr(BinaryOperatorExpression),
 	ConstantExpr(Constant),
+	IdentifierExpr(Identifier),
+}
+
+pub struct Declaration {
+	pub specifier: TypeSpecifier,
+	pub declarator: Identifier,
 }
 
 pub enum Statement {
 	CompoundStmt(Box<Vec<Statement>>),
+
+	// e.g. return 1 + 2; or just return;
 	ReturnStmt(Option<Box<Expression>>),
+
+	// e.g. int i;
+	DeclarationStmt(Declaration),
+
+	// e.g. i = 10;
+	ExpressionStmt(Box<Expression>),
 }
 
 pub struct Identifier(pub String);
@@ -75,6 +90,14 @@ peg::parser! {pub grammar parser() for str {
 		}
 
 	rule expression() -> Expression = precedence!{
+		a:@ blank()* "=" blank()* b:(@) {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				op: BinaryOperator::Asg,
+				lhs: Box::new(a),
+				rhs: Box::new(b),
+			})
+		}
+		--
 		a:(@) blank()* "+" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
 				op: BinaryOperator::Add,
@@ -111,14 +134,58 @@ peg::parser! {pub grammar parser() for str {
 			})
 		}
 		--
+		i:identifier() {
+			Expression::IdentifierExpr(i)
+		}
+		--
 		blank()+ e:expression() blank()* { e }
 		"(" e:expression() ")" { e }
 		i:integer_literal() { Expression::ConstantExpr(i) }
 	}
 
+	rule declaration_stmt() -> Statement
+		= blank()+ s:declaration_stmt() blank()* { s }
+		/ t:type_specifier() blank()+ i:identifier() blank()* ";" {
+			Statement::DeclarationStmt(Declaration {
+				specifier: t,
+				declarator: i,
+			})
+		}
+
+	rule expression_stmt() -> Statement
+		= blank()+ s:expression_stmt() blank()* { s }
+		/ e:expression() blank()* ";" {
+			Statement::ExpressionStmt(Box::new(e))
+			// use Expression::*;
+			// match e {
+			// 	BinaryOperatorExpr(BinaryOperatorExpression { op, lhs, rhs }) => {
+			// 		use BinaryOperator::*;
+			// 		match op {
+			// 			Asg => {
+			// 				match *lhs {
+			// 					ConstantExpr(_) => {
+			// 						panic!("Failed to parse expression statement: LHS of assignment is constant")
+			// 					},
+
+			// 					_ => Statement::ExpressionStmt(Box::new(e))
+			// 				}
+			// 			}
+
+			// 			_ => {
+			// 				panic!("Failed to parse expression statement: bad operator")
+			// 			}
+			// 		}
+			// 	},
+
+			// 	_ => {
+			// 		panic!("Failed to parse expression statement: bad expression")
+			// 	}
+			// }
+		}
+
 	rule return_stmt() -> Statement
 		= blank()+ s:return_stmt() blank()* { s }
-		/ "return" blank()+ e:expression() ";" { Statement::ReturnStmt(Some(Box::new(e))) }
+		/ "return" blank()+ e:expression() blank()* ";" { Statement::ReturnStmt(Some(Box::new(e))) }
 		/ "return" blank()* ";" { Statement::ReturnStmt(None) }
 
 	rule compound_stmt() -> Statement
@@ -126,7 +193,10 @@ peg::parser! {pub grammar parser() for str {
 		/ "{" s:statement()* "}" { Statement::CompoundStmt(Box::new(s)) }
 
 	rule statement() -> Statement
-		 = compound_stmt() / return_stmt()
+		= compound_stmt()
+		/ return_stmt()
+		/ declaration_stmt()
+		/ expression_stmt()
 
 	rule function_definition() -> FunctionDefinition
 		= t:type_specifier() blank()+ d:identifier() blank()* "(" blank()* ")" b:compound_stmt() {

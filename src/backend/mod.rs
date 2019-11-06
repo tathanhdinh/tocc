@@ -2,23 +2,33 @@
 //  - register allocation
 //  - machine code generation
 
-use std::mem;
+use std::{
+	collections::HashMap,
+	mem,
+	sync::atomic::{AtomicUsize, Ordering},
+};
 
 use cranelift::prelude::*;
 use cranelift_module::{Linkage, Module};
 use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
 
 use crate::frontend::ast::{
-	BinaryOperator, BinaryOperatorExpression, Constant, Expression,
-	FunctionDefinition, Identifier, Integer, Statement, TranslationUnit,
-	TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
+	BinaryOperator, BinaryOperatorExpression, Constant, Declaration,
+	Expression, FunctionDefinition, Identifier, Integer, Statement,
+	TranslationUnit, TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
 };
 
-fn translate_expression(expr: &Expression, fb: &mut FunctionBuilder) -> Value {
+static NEW_VAR_INDEX: AtomicUsize = AtomicUsize::new(0);
+
+fn translate_expression(
+	expr: &Expression,
+	fb: &mut FunctionBuilder,
+	scope: &HashMap<String, Variable>,
+) -> Value {
 	use Expression::*;
 	match expr {
 		UnaryOperatorExpr(UnaryOperatorExpression { op, rhs }) => {
-			let rhs = translate_expression(rhs, fb);
+			let rhs = translate_expression(rhs, fb, scope);
 
 			use UnaryOperator::*;
 			match op {
@@ -30,8 +40,8 @@ fn translate_expression(expr: &Expression, fb: &mut FunctionBuilder) -> Value {
 		}
 
 		BinaryOperatorExpr(BinaryOperatorExpression { op, lhs, rhs }) => {
-			let lhs = translate_expression(lhs, fb);
-			let rhs = translate_expression(rhs, fb);
+			let lhs = translate_expression(lhs, fb, scope);
+			let rhs = translate_expression(rhs, fb, scope);
 
 			use BinaryOperator::*;
 			match op {
@@ -42,27 +52,86 @@ fn translate_expression(expr: &Expression, fb: &mut FunctionBuilder) -> Value {
 				Add => fb.ins().iadd(lhs, rhs),
 
 				Sub => fb.ins().isub(lhs, rhs),
+
+				_ => {
+					unreachable!();
+				}
 			}
 		}
 
 		ConstantExpr(Constant::IntegerConst(Integer(i))) => {
 			fb.ins().iconst(types::I64, *i)
 		}
+
+		IdentifierExpr(Identifier(var_name)) => {
+			let var = scope.get(var_name).unwrap(); // check in semantics analysis
+			fb.use_var(*var)
+		}
 	}
 }
 
-fn translate_statement(stmt: &Statement, fb: &mut FunctionBuilder) {
+fn translate_statement(
+	stmt: &Statement,
+	fb: &mut FunctionBuilder,
+	scope: &mut HashMap<String, Variable>,
+) {
 	use Statement::*;
 	match stmt {
-		CompoundStmt(stmts) => {
-			for s in stmts.iter() {
-				translate_statement(s, fb);
+		CompoundStmt(statements) => {
+			for s in statements.iter() {
+				translate_statement(s, fb, scope);
+			}
+		}
+
+		DeclarationStmt(Declaration {
+			specifier,
+			declarator: Identifier(var_name),
+		}) => {
+			let new_var =
+				Variable::new(NEW_VAR_INDEX.fetch_add(1, Ordering::Relaxed));
+			use TypeSpecifier::*;
+			match specifier {
+				Int => {
+					fb.declare_var(new_var, types::I64);
+					let default_val = fb.ins().iconst(types::I64, 0);
+					fb.def_var(new_var, default_val);
+				}
+			}
+			scope.insert(var_name.into(), new_var);
+		}
+
+		ExpressionStmt(e) => {
+			use Expression::*;
+			match &**e {
+				BinaryOperatorExpr(BinaryOperatorExpression {
+					op,
+					lhs,
+					rhs,
+				}) => {
+					use BinaryOperator::*;
+					match op {
+						Asg => match &**lhs {
+							IdentifierExpr(Identifier(var_name)) => {
+								let var = scope.get(var_name).unwrap(); // should be checked in semantics analysis
+								let new_val =
+									translate_expression(&*rhs, fb, scope);
+								fb.def_var(*var, new_val);
+							}
+
+							_ => {}
+						},
+
+						_ => {}
+					}
+				}
+
+				_ => {}
 			}
 		}
 
 		ReturnStmt(opt_expr) => {
 			if let Some(expr) = opt_expr {
-				let v = translate_expression(expr, fb);
+				let v = translate_expression(expr, fb, scope);
 				fb.ins().return_(&[v]);
 			}
 		}
@@ -74,7 +143,7 @@ pub fn compile(
 ) -> (Box<unsafe extern "C" fn() -> i64>, usize) {
 	let TranslationUnit::FunctionDefinition(FunctionDefinition {
 		specifier: TypeSpecifier::Int,
-		declarator: Identifier(i),
+		declarator: Identifier(fname),
 		// body: Statement::CompoundStmt(s),
 		body,
 	}) = tu;
@@ -94,14 +163,15 @@ pub fn compile(
 	let ebb = fb.create_ebb();
 	fb.switch_to_block(ebb);
 
-	translate_statement(body, &mut fb);
+	let mut scope = HashMap::new();
+	translate_statement(body, &mut fb, &mut scope);
 
 	// finalize function
 	fb.seal_block(ebb);
 	fb.finalize();
 
 	let fid = module
-		.declare_function(i, Linkage::Export, &context.func.signature)
+		.declare_function(fname, Linkage::Export, &context.func.signature)
 		.expect("Failed to declare function");
 	let flen = module
 		.define_function(fid, &mut context)

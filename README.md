@@ -6,4 +6,4 @@ tocc: A type-obfuscated C compiler
  - Small C compilers: [r9cc](https://github.com/utam0k/r9cc.git), [cproc](https://github.com/michaelforney/cproc), [lcc](https://github.com/drh/lcc), [scc](http://git.simple-cc.org/scc/file/README.html), [rcc](https://github.com/wbowling/rcc), [rucc](https://github.com/maekawatoshiki/rucc)
  - [Resources for Amateur Compiler Writers](https://c9x.me/compile/bib/)
  - [Writing a C Compiler](https://norasandler.com/2017/11/29/Write-a-Compiler.html)
- - [HN discussion on small C compilers](https://news.ycombinator.com/item?id=21210087)
+ - Discussions on small C compilers: [HN](https://news.ycombinator.com/item?id=21210087), [again HN](https://news.ycombinator.com/item?id=9125912), [Reddit](https://www.reddit.com/r/Cprog/comments/4egaog/small_lesser_known_c_compilers_a_list/)
