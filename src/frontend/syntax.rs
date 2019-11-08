@@ -1,3 +1,7 @@
+// syntax analysis
+
+const KEYWORDS: &'static [&'static str] = &["if", "else", "while", "do", "int"];
+
 pub enum UnaryOperator {
 	Neg,
 }
@@ -48,8 +52,8 @@ pub enum Statement {
 	// e.g. int i;
 	DeclarationStmt(Declaration),
 
-	// e.g. i = 10;
-	ExpressionStmt(Box<Expression>),
+	// e.g. i = 10; or just ; (i.e. null statement)
+	ExpressionStmt(Option<Box<Expression>>),
 }
 
 pub struct Identifier(pub String);
@@ -64,21 +68,26 @@ pub struct FunctionDefinition {
 	pub body: Statement, // actually Statement::CompoundStmt
 }
 
-pub enum TranslationUnit {
-	FunctionDefinition(FunctionDefinition),
+pub enum ExternalDeclaration {
+	FunctionDefinitionDecl(FunctionDefinition),
 }
 
-// References:
-//  - 10.1145/1942793.1942796
-//  - https://github.com/vickenty/lang-c
+pub struct TranslationUnit(pub Vec<ExternalDeclaration>);
+
+//  10.1145/1942793.1942796
+//  https://github.com/vickenty/lang-c
 peg::parser! {pub grammar parser() for str {
 	rule blank() = [' ' | '\t' | '\n']
 	rule digit() = ['0'..='9']
 	rule letter() = ['a'..='z' | 'A'..='Z' | '_']
 
 	rule identifier() -> Identifier
-		= i:$(letter() (letter() / digit())*) {
-			Identifier(i.to_owned())
+		= i:$(letter() (letter() / digit())*) {?
+			if KEYWORDS.contains(&i) {
+				Err("identifier is a keyword")
+			} else {
+				Ok(Identifier(i.to_owned()))
+			}
 		}
 
 	rule type_specifier() -> TypeSpecifier
@@ -138,13 +147,13 @@ peg::parser! {pub grammar parser() for str {
 			Expression::IdentifierExpr(i)
 		}
 		--
-		blank()+ e:expression() blank()* { e }
+		blank()+ e:expression() { e }
 		"(" e:expression() ")" { e }
 		i:integer_literal() { Expression::ConstantExpr(i) }
 	}
 
 	rule declaration_stmt() -> Statement
-		= blank()+ s:declaration_stmt() blank()* { s }
+		= blank()+ s:declaration_stmt() { s }
 		/ t:type_specifier() blank()+ i:identifier() blank()* ";" {
 			Statement::DeclarationStmt(Declaration {
 				specifier: t,
@@ -153,44 +162,22 @@ peg::parser! {pub grammar parser() for str {
 		}
 
 	rule expression_stmt() -> Statement
-		= blank()+ s:expression_stmt() blank()* { s }
-		/ e:expression() blank()* ";" {
-			Statement::ExpressionStmt(Box::new(e))
-			// use Expression::*;
-			// match e {
-			// 	BinaryOperatorExpr(BinaryOperatorExpression { op, lhs, rhs }) => {
-			// 		use BinaryOperator::*;
-			// 		match op {
-			// 			Asg => {
-			// 				match *lhs {
-			// 					ConstantExpr(_) => {
-			// 						panic!("Failed to parse expression statement: LHS of assignment is constant")
-			// 					},
-
-			// 					_ => Statement::ExpressionStmt(Box::new(e))
-			// 				}
-			// 			}
-
-			// 			_ => {
-			// 				panic!("Failed to parse expression statement: bad operator")
-			// 			}
-			// 		}
-			// 	},
-
-			// 	_ => {
-			// 		panic!("Failed to parse expression statement: bad expression")
-			// 	}
-			// }
-		}
+		= blank()+ s:expression_stmt() { s }
+		/ e:expression() blank()* ";" { Statement::ExpressionStmt(Some(Box::new(e))) }
+		/ ";" { Statement::ExpressionStmt(None) }
 
 	rule return_stmt() -> Statement
-		= blank()+ s:return_stmt() blank()* { s }
-		/ "return" blank()+ e:expression() blank()* ";" { Statement::ReturnStmt(Some(Box::new(e))) }
+		= blank()+ s:return_stmt() { s }
+		/ "return" blank()+ e:expression() blank()* ";" {
+			Statement::ReturnStmt(Some(Box::new(e)))
+		}
 		/ "return" blank()* ";" { Statement::ReturnStmt(None) }
 
 	rule compound_stmt() -> Statement
-		= blank()+ s:compound_stmt() blank()* { s }
-		/ "{" s:statement()* "}" { Statement::CompoundStmt(Box::new(s)) }
+		= blank()+ s:compound_stmt() { s }
+		/ "{" s:statement()* blank()* "}" {
+			Statement::CompoundStmt(Box::new(s))
+		}
 
 	rule statement() -> Statement
 		= compound_stmt()
@@ -208,5 +195,7 @@ peg::parser! {pub grammar parser() for str {
 		}
 
 	pub rule parse() -> TranslationUnit
-		= f:function_definition() { TranslationUnit::FunctionDefinition(f) }
+		= f:function_definition() {
+			TranslationUnit(vec![ExternalDeclaration::FunctionDefinitionDecl(f)])
+		}
 }}

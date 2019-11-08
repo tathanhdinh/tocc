@@ -13,13 +13,8 @@ mod frontend;
 #[derive(StructOpt)]
 #[structopt(name = "tocc", about = "A type-obfuscated C compiler")]
 struct Opt {
-	#[structopt(
-		name = "input",
-		short = "i",
-		long = "input",
-		parse(from_os_str),
-		help = "Arithmetic expression"
-	)]
+	/// Source code file
+	#[structopt(name = "input", parse(from_os_str))]
 	src: PathBuf,
 }
 
@@ -29,8 +24,11 @@ fn main() {
 		opt.src
 	};
 
-	let tu = frontend::ast(&src_file);
-	let (fptr, flen) = backend::compile(&tu);
+	let tu = frontend::parse(&src_file);
+	frontend::semantic_analysis(&tu);
+
+	let (fptr, flen) =
+		backend::compile(&tu).expect("Failed to compile source code");
 
 	// call jitted function
 	println!("result: {}", unsafe { fptr() });
@@ -64,25 +62,32 @@ fn main() {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::path::Path;
+
+	fn compile_and_run(file: impl AsRef<Path>) -> i64 {
+		let tu = frontend::parse(file);
+		frontend::semantic_analysis(&tu);
+		let (fptr, _) = backend::compile(&tu).unwrap();
+		unsafe { fptr() }
+	}
 
 	#[test]
 	fn compile_0() {
-		let tu = frontend::ast("tests/0.c");
-		let (fptr, _) = backend::compile(&tu);
-		assert_eq!(unsafe { fptr() }, 12);
+		assert_eq!(compile_and_run("tests/0.c"), 12);
 	}
 
 	#[test]
 	fn compile_1() {
-		let tu = frontend::ast("tests/1.c");
-		let (fptr, _) = backend::compile(&tu);
-		assert_eq!(unsafe { fptr() }, -17);
+		assert_eq!(compile_and_run("tests/1.c"), -17);
 	}
 
 	#[test]
 	fn compile_2() {
-		let tu = frontend::ast("tests/2.c");
-		let (fptr, _) = backend::compile(&tu);
-		assert_eq!(unsafe { fptr() }, -1);
+		assert_eq!(compile_and_run("tests/2.c"), -1);
+	}
+
+	#[test]
+	fn compile_3() {
+		assert_eq!(compile_and_run("tests/3.c"), -6);
 	}
 }

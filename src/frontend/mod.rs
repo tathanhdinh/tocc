@@ -1,13 +1,15 @@
 // Front-end:
-//  - lexer/parser
+//  - syntax analysis
 //  - semantics analysis
 
 use std::{fs, path::Path};
 
-pub mod ast;
-use ast::{parser, TranslationUnit};
+mod sem;
+pub mod syntax;
 
-pub fn ast(src_file: impl AsRef<Path>) -> TranslationUnit {
+use syntax::{parser, TranslationUnit};
+
+pub fn parse(src_file: impl AsRef<Path>) -> TranslationUnit {
 	let src_code =
 		fs::read_to_string(src_file).expect("Failed to read source code file");
 	if let Ok(tu) = parser::parse(&src_code) {
@@ -15,4 +17,9 @@ pub fn ast(src_file: impl AsRef<Path>) -> TranslationUnit {
 	} else {
 		panic!("Failed to parse source code")
 	}
+}
+
+pub fn semantic_analysis(tu: &TranslationUnit) {
+	sem::check_binding(tu);
+	sem::check_kind(tu);
 }
