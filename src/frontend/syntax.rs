@@ -1,6 +1,7 @@
 // syntax analysis
+use std::{fs, hint::unreachable_unchecked, path::Path};
 
-const KEYWORDS: &'static [&'static str] = &["if", "else", "while", "do", "int"];
+const KEYWORDS: &'static [&'static str] = &["if", "else", "while", "do", "int", "return", "struct"];
 
 pub enum UnaryOperator {
 	Neg,
@@ -19,6 +20,11 @@ pub enum BinaryOperator {
 	Asg,
 }
 
+pub enum MemberOperator {
+	Direct,
+	Indirect,
+}
+
 pub struct Integer(pub i64);
 
 pub enum Constant {
@@ -31,13 +37,20 @@ pub struct BinaryOperatorExpression {
 	pub rhs: Box<Expression>,
 }
 
+pub struct MemberExpression {
+	pub operator: MemberOperator,
+	pub expression: Box<Expression>,
+	pub identifier: Identifier,
+}
+
 pub enum Expression {
 	UnaryOperatorExpr(UnaryOperatorExpression),
 	BinaryOperatorExpr(BinaryOperatorExpression),
 	ConstantExpr(Constant),
 	IdentifierExpr(Identifier),
+	MemberExpr(MemberExpression),
 }
-
+#[derive(Debug, Clone)]
 pub struct Declaration {
 	pub specifier: TypeSpecifier,
 	pub declarator: Identifier,
@@ -56,10 +69,18 @@ pub enum Statement {
 	ExpressionStmt(Option<Box<Expression>>),
 }
 
+#[derive(Debug, Clone)]
 pub struct Identifier(pub String);
 
+#[derive(Debug, Clone)]
+pub struct StructType {
+	pub identifier: Identifier,
+	pub declarations: Option<Vec<Declaration>>,
+}
+#[derive(Debug, Clone)]
 pub enum TypeSpecifier {
 	Int,
+	Struct(StructType),
 }
 
 pub struct FunctionDefinition {
@@ -76,7 +97,7 @@ pub struct TranslationUnit(pub Vec<ExternalDeclaration>);
 
 //  10.1145/1942793.1942796
 //  https://github.com/vickenty/lang-c
-peg::parser! {pub grammar parser() for str {
+peg::parser! {grammar parser() for str {
 	rule blank() = [' ' | '\t' | '\n']
 	rule digit() = ['0'..='9']
 	rule letter() = ['a'..='z' | 'A'..='Z' | '_']
@@ -92,6 +113,24 @@ peg::parser! {pub grammar parser() for str {
 
 	rule type_specifier() -> TypeSpecifier
 		= "int" { TypeSpecifier::Int }
+		/ "struct" blank()+ i:identifier() blank()* "{" blank()* dss:declaration_stmt()* blank()* "}" {
+			let ds: Vec<_> = dss.iter().map(|s| {
+				use Statement::*;
+				match s {
+					DeclarationStmt(d) => d.clone(),
+					_ => unsafe { unreachable_unchecked() }
+			}}).collect();
+			TypeSpecifier::Struct(StructType {
+				identifier: i,
+				declarations: Some(ds)
+			})
+		}
+		/ "struct" blank()+ i:identifier() {
+			TypeSpecifier::Struct(StructType {
+				identifier: i,
+				declarations: None
+			})
+		}
 
 	rule integer_literal() -> Constant
 		= i:$(digit()+) {
@@ -143,6 +182,21 @@ peg::parser! {pub grammar parser() for str {
 			})
 		}
 		--
+		a:(@) "." b:identifier() {
+			Expression::MemberExpr(MemberExpression {
+				operator: MemberOperator::Direct,
+				expression: Box::new(a),
+				identifier: b,
+			})
+		}
+		a:(@) "->" b:identifier() @ {
+			Expression::MemberExpr(MemberExpression {
+				operator: MemberOperator::Indirect,
+				expression: Box::new(a),
+				identifier: b,
+			})
+		}
+		--
 		i:identifier() {
 			Expression::IdentifierExpr(i)
 		}
@@ -175,8 +229,8 @@ peg::parser! {pub grammar parser() for str {
 
 	rule compound_stmt() -> Statement
 		= blank()+ s:compound_stmt() { s }
-		/ "{" s:statement()* blank()* "}" {
-			Statement::CompoundStmt(Box::new(s))
+		/ "{" ss:statement()* blank()* "}" {
+			Statement::CompoundStmt(Box::new(ss))
 		}
 
 	rule statement() -> Statement
@@ -194,8 +248,17 @@ peg::parser! {pub grammar parser() for str {
 			}
 		}
 
-	pub rule parse() -> TranslationUnit
+	pub rule translation_unit() -> TranslationUnit
 		= f:function_definition() {
 			TranslationUnit(vec![ExternalDeclaration::FunctionDefinitionDecl(f)])
 		}
 }}
+
+pub fn parse(src_file: impl AsRef<Path>) -> TranslationUnit {
+	let src_code = fs::read_to_string(src_file).expect("Failed to read source code file");
+	if let Ok(tu) = parser::translation_unit(&src_code) {
+		tu
+	} else {
+		panic!("Failed to parse source code")
+	}
+}

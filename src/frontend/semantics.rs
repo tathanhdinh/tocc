@@ -7,29 +7,18 @@ use std::{
 };
 
 use super::syntax::{
-	BinaryOperatorExpression, Declaration, Expression, ExternalDeclaration,
-	FunctionDefinition, Identifier, Statement, TranslationUnit,
-	UnaryOperatorExpression,
+	BinaryOperatorExpression, Declaration, Expression, ExternalDeclaration, FunctionDefinition, Identifier, Statement, TranslationUnit, UnaryOperatorExpression,
 };
 
-fn check_binding_at_declaration_statement<'a>(
-	stmt: &'a Statement,
-	env: &mut HashMap<&'a str, bool>,
-) {
+fn check_binding_at_declaration_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, bool>) {
 	use Statement::*;
 	match stmt {
-		DeclarationStmt(Declaration {
-			declarator: Identifier(i),
-			..
-		}) => {
+		DeclarationStmt(Declaration { declarator: Identifier(i), .. }) => {
 			let i = i.as_str();
 			if env.contains_key(i) {
 				if env[i] {
 					// cannot rebound by an identifer in the same scope
-					panic!(format!(
-						"Variable {} already exists in the same scope",
-						i
-					))
+					panic!(format!("Variable {} already exists in the same scope", i))
 				} else {
 					// rebound the identifier in the outer scope
 					*env.get_mut(i).unwrap() = true;
@@ -65,10 +54,7 @@ fn check_binding_at_expression(expr: &Expression, env: &HashMap<&str, bool>) {
 	}
 }
 
-fn check_binding_at_expression_statement(
-	stmt: &Statement,
-	env: &HashMap<&str, bool>,
-) {
+fn check_binding_at_expression_statement(stmt: &Statement, env: &HashMap<&str, bool>) {
 	use Statement::*;
 	match stmt {
 		ExpressionStmt(Some(expr)) => {
@@ -79,10 +65,7 @@ fn check_binding_at_expression_statement(
 	}
 }
 
-fn check_binding_at_return_statement(
-	stmt: &Statement,
-	env: &HashMap<&str, bool>,
-) {
+fn check_binding_at_return_statement(stmt: &Statement, env: &HashMap<&str, bool>) {
 	use Statement::*;
 	match stmt {
 		ReturnStmt(stmt) => {
@@ -95,10 +78,7 @@ fn check_binding_at_return_statement(
 	}
 }
 
-fn check_binding_at_statement<'a>(
-	stmt: &'a Statement,
-	env: &mut HashMap<&'a str, bool>,
-) {
+fn check_binding_at_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, bool>) {
 	// let duplicate_environment = || {
 	// 	let mut local_env = env.clone();
 	// 	for (_, val) in local_env.iter_mut() {
@@ -117,24 +97,13 @@ fn check_binding_at_statement<'a>(
 
 			for stmt in stmts.iter() {
 				match stmt {
-					CompoundStmt(_) => {
-						check_binding_at_statement(stmt, &mut local_env)
-					}
+					CompoundStmt(_) => check_binding_at_statement(stmt, &mut local_env),
 
-					ReturnStmt(_) => {
-						check_binding_at_return_statement(stmt, &local_env)
-					}
+					ReturnStmt(_) => check_binding_at_return_statement(stmt, &local_env),
 
-					DeclarationStmt(_) => {
-						check_binding_at_declaration_statement(
-							stmt,
-							&mut local_env,
-						)
-					}
+					DeclarationStmt(_) => check_binding_at_declaration_statement(stmt, &mut local_env),
 
-					ExpressionStmt(_) => {
-						check_binding_at_expression_statement(stmt, &local_env)
-					}
+					ExpressionStmt(_) => check_binding_at_expression_statement(stmt, &local_env),
 				}
 			}
 		}
@@ -157,7 +126,7 @@ fn check_binding_at_statement<'a>(
 //       - no: error, an identifer cannot rebound by some identifer in the same scope
 // Before going to a nested scope:
 //   - duplicate the outer environment, all value set to true
-pub fn check_binding(tu: &TranslationUnit) {
+fn check_binding(tu: &TranslationUnit) {
 	// global environment
 	let mut env = HashMap::new();
 
@@ -172,10 +141,7 @@ pub fn check_binding(tu: &TranslationUnit) {
 			}) => {
 				let fname = fname.as_str();
 				if env.contains_key(fname) {
-					panic!(format!(
-						"Function {} already exists in the same scope",
-						fname
-					));
+					panic!(format!("Function {} already exists in the same scope", fname));
 				} else {
 					env.insert(fname, false);
 				}
@@ -188,8 +154,14 @@ pub fn check_binding(tu: &TranslationUnit) {
 
 // C11 Standard: 6.3.2.1 Lvalue, arrays, and function designators
 // Modern Compiler Design: 11.1.2.5 Kind checking
-pub fn check_kind(tu: &TranslationUnit) {
+// Dragon book: 2.8.3 Static checking: L-values and R-values
+fn check_kind(tu: &TranslationUnit) {
 	// TODO: simple type system of locations and values
+}
+
+pub fn check(tu: &TranslationUnit) {
+	check_binding(tu);
+	check_kind(tu);
 }
 
 static NEW_VAR_INDEX: AtomicUsize = AtomicUsize::new(0);
