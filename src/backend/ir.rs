@@ -1,18 +1,18 @@
 use std::{
 	collections::HashMap,
 	hint::unreachable_unchecked,
-	mem,
+	mem, slice,
 	sync::atomic::{AtomicUsize, Ordering},
 };
 
 use cranelift::prelude::*;
-use cranelift_codegen::ir::entities::StackSlot;
+use cranelift_codegen::{ir::entities::StackSlot, Context};
 use cranelift_module::{Linkage, Module};
-use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
+use cranelift_simplejit::SimpleJITBackend;
 
 use crate::frontend::syntax::{
-	BinaryOperator, BinaryOperatorExpression, Constant, Declaration, Expression, ExternalDeclaration, FunctionDefinition, Identifier, Integer, MemberExpression,
-	Statement, TranslationUnit, TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
+	BinaryOperator, BinaryOperatorExpression, Constant, Declaration, Expression, ExternalDeclaration, FunctionDeclarator, FunctionDefinition, Identifier, Integer,
+	MemberExpression, Statement, TranslationUnit, TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
 };
 
 static NEW_VAR_ID: AtomicUsize = AtomicUsize::new(0);
@@ -35,7 +35,7 @@ fn translate_expression(expr: &Expression, fb: &mut FunctionBuilder, env: &Envir
 			use UnaryOperator::*;
 			match op {
 				Neg => {
-					let lhs = fb.ins().iconst(types::I64, 0);
+					let lhs = fb.ins().iconst(types::I32, 0);
 					fb.ins().isub(lhs, rhs)
 				}
 			}
@@ -55,7 +55,7 @@ fn translate_expression(expr: &Expression, fb: &mut FunctionBuilder, env: &Envir
 			}
 		}
 
-		ConstantExpr(Constant::IntegerConst(Integer(i))) => fb.ins().iconst(types::I64, *i),
+		ConstantExpr(Constant::IntegerConst(Integer(i))) => fb.ins().iconst(types::I32, *i as i64),
 
 		IdentifierExpr(Identifier(var_name)) => {
 			if let Some(var) = env.get(var_name.as_str()) {
@@ -81,7 +81,7 @@ fn translate_expression(expr: &Expression, fb: &mut FunctionBuilder, env: &Envir
 				if let Some(var) = env.get(var_name.as_str()) {
 					use SimpleTypedVariable::*;
 					if let Aggregate(stack_slot) = var {
-						fb.ins().stack_load(types::I64, *stack_slot, 0)
+						fb.ins().stack_load(types::I32, *stack_slot, 0)
 					} else {
 						unsafe { unreachable_unchecked() }
 					}
@@ -109,14 +109,14 @@ fn translate_declaration_statement<'a>(stmt: &'a Statement, fb: &mut FunctionBui
 			match specifier {
 				Int => {
 					let new_var = Variable::new(NEW_VAR_ID.fetch_add(1, Ordering::Relaxed));
-					fb.declare_var(new_var, types::I64);
-					let default_val = fb.ins().iconst(types::I64, 0);
+					fb.declare_var(new_var, types::I32);
+					let default_val = fb.ins().iconst(types::I32, 0);
 					fb.def_var(new_var, default_val);
 					env.insert(var_name.as_str(), Primitive(new_var));
 				}
 
 				Struct(_) => {
-					let struct_data = StackSlotData::new(StackSlotKind::ExplicitSlot, types::I64.bytes());
+					let struct_data = StackSlotData::new(StackSlotKind::ExplicitSlot, types::I32.bytes());
 					let stack_slot = fb.create_stack_slot(struct_data);
 					env.insert(var_name.as_str(), Aggregate(stack_slot));
 				}
@@ -196,7 +196,6 @@ fn translate_expression_statement(stmt: &Statement, fb: &mut FunctionBuilder, en
 	if let ExpressionStmt(expr) = stmt {
 		if let Some(expr) = expr {
 			use Expression::*;
-			let expr = &**expr;
 			match expr {
 				BinaryOperatorExpr(_) => translate_binary_operator_expression_statement(expr, fb, env),
 
@@ -227,10 +226,10 @@ fn translate_return_statement(stmt: &Statement, fb: &mut FunctionBuilder, env: &
 fn translate_statement<'a>(stmt: &'a Statement, fb: &mut FunctionBuilder, env: &mut Environment<'a>) {
 	use Statement::*;
 	match stmt {
-		CompoundStmt(statements) => {
+		CompoundStmt(stmts) => {
 			let mut nested_env = env.clone();
-			for s in statements.iter() {
-				translate_statement(s, fb, &mut nested_env);
+			for stmt in stmts.iter() {
+				translate_statement(stmt, fb, &mut nested_env);
 			}
 		}
 		DeclarationStmt(_) => translate_declaration_statement(stmt, fb, env),
@@ -239,52 +238,106 @@ fn translate_statement<'a>(stmt: &'a Statement, fb: &mut FunctionBuilder, env: &
 	}
 }
 
-pub fn compile(tu: &TranslationUnit) -> Option<(Box<unsafe extern "C" fn() -> i64>, usize)> {
-	let mut result = None;
+fn translate_function_definition<'a>(func: &ExternalDeclaration, module: &'a mut Module<SimpleJITBackend>, context: &mut Context, env: &mut Environment) -> &'a [u8] {
+	use ExternalDeclaration::*;
+	if let FunctionDefinitionDecl(FunctionDefinition {
+		specifier,
+		declarator: FunctionDeclarator {
+			identifier: Identifier(fname),
+			parameters,
+		},
+		body,
+	}) = func
+	{
+		use TypeSpecifier::*;
+		// return type
+		match specifier {
+			Int => context.func.signature.returns.push(AbiParam::new(types::I32)),
 
-	let TranslationUnit(eds) = tu;
-	for ed in eds.iter() {
-		use ExternalDeclaration::*;
-		match ed {
-			FunctionDefinitionDecl(FunctionDefinition {
-				declarator: Identifier(fname),
-				body,
-				..
-			}) => {
-				let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
-				let mut module = Module::<SimpleJITBackend>::new(builder);
-				let mut context = module.make_context();
-				context.func.signature.returns.push(AbiParam::new(types::I64));
-
-				// layout
-				let mut fbc = FunctionBuilderContext::new();
-				let mut fb = FunctionBuilder::new(&mut context.func, &mut fbc);
-				let ebb = fb.create_ebb();
-				fb.switch_to_block(ebb);
-
-				let mut scope = HashMap::new();
-				translate_statement(body, &mut fb, &mut scope);
-
-				// finalize function
-				fb.seal_block(ebb);
-				fb.finalize();
-
-				let fid = module
-					.declare_function(fname, Linkage::Export, &context.func.signature)
-					.expect("Failed to declare function");
-				let flen = module.define_function(fid, &mut context).expect("Failed to define function");
-
-				module.clear_context(&mut context);
-				// SELinux workaround: "sudo setenforce 0"
-				module.finalize_definitions();
-
-				let fptr = module.get_finalized_function(fid);
-				let fptr = unsafe { mem::transmute::<_, _>(fptr) };
-
-				result = Some((Box::new(fptr), flen as _));
+			_ => {
+				// TODO
+				panic!("Unsupported return type");
 			}
+		}
+		// parameter types
+		for param in parameters.iter() {
+			let Declaration { specifier, .. } = param;
+			match specifier {
+				Int => context.func.signature.params.push(AbiParam::new(types::I32)),
+
+				_ => {
+					// TODO
+					panic!("Unsupported parameter type");
+				}
+			}
+		}
+
+		let mut fb_ctxt = FunctionBuilderContext::new();
+		let mut fb = FunctionBuilder::new(&mut context.func, &mut fb_ctxt);
+
+		// create entry extended basic block, set parameters as function parameters, and switch to the block
+		let entry_ebb = fb.create_ebb();
+		fb.append_ebb_params_for_function_params(entry_ebb);
+		fb.switch_to_block(entry_ebb);
+		fb.seal_block(entry_ebb);
+
+		let mut env = env.clone();
+
+		// declare parameters
+		for (i, param) in parameters.iter().enumerate() {
+			let Declaration {
+				declarator: Identifier(pname),
+				specifier,
+			} = param;
+			let pval = fb.ebb_params(entry_ebb)[i];
+			let pvar = Variable::new(NEW_VAR_ID.fetch_add(1, Ordering::Relaxed));
+			// fb.declare_var(pvar, ctxt.func.dfg.value_type(pval));
+			use SimpleTypedVariable::*;
+			match specifier {
+				Int => {
+					fb.declare_var(pvar, types::I32);
+					env.insert(pname.as_str(), Primitive(pvar));
+				}
+
+				_ => panic!("Unsupported parameter type"),
+			}
+			fb.def_var(pvar, pval);
+		}
+
+		// translate function body
+		translate_statement(body, &mut fb, &mut env);
+
+		// finalize the translation
+		fb.finalize();
+
+		let fid = module
+			.declare_function(fname, Linkage::Export, &context.func.signature)
+			.expect("Failed to declare function");
+		let flen = module.define_function(fid, context).expect("Failed to define function");
+
+		module.clear_context(context);
+		// SELinux workaround: "sudo setenforce 0"
+		module.finalize_definitions();
+
+		let fptr = module.get_finalized_function(fid);
+		unsafe { slice::from_raw_parts(mem::transmute::<_, *const u8>(fptr), flen as _) }
+	} else {
+		unsafe { unreachable_unchecked() }
+	}
+}
+
+pub fn evaluate<'a>(tu: &TranslationUnit, module: &'a mut Module<SimpleJITBackend>) -> &'a [u8] {
+	let TranslationUnit(extern_decs) = tu;
+	let mut env = Environment::new();
+	let mut context = module.make_context();
+
+	for dec in extern_decs.iter() {
+		use ExternalDeclaration::*;
+		match dec {
+			FunctionDefinitionDecl(_) => return translate_function_definition(dec, module, &mut context, &mut env),
+			_ => panic!("Unsupported external declaration"),
 		}
 	}
 
-	return result;
+	panic!("No function to evaluate")
 }

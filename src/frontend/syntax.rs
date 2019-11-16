@@ -25,7 +25,7 @@ pub enum MemberOperator {
 	Indirect,
 }
 
-pub struct Integer(pub i64);
+pub struct Integer(pub i32);
 
 pub enum Constant {
 	IntegerConst(Integer),
@@ -50,6 +50,8 @@ pub enum Expression {
 	IdentifierExpr(Identifier),
 	MemberExpr(MemberExpression),
 }
+
+// Simplified declaration (C11 6.7)
 #[derive(Debug, Clone)]
 pub struct Declaration {
 	pub specifier: TypeSpecifier,
@@ -57,16 +59,16 @@ pub struct Declaration {
 }
 
 pub enum Statement {
-	CompoundStmt(Box<Vec<Statement>>),
+	CompoundStmt(Vec<Statement>),
 
 	// e.g. return 1 + 2; or just return;
-	ReturnStmt(Option<Box<Expression>>),
+	ReturnStmt(Option<Expression>),
 
 	// e.g. int i;
 	DeclarationStmt(Declaration),
 
 	// e.g. i = 10; or just ; (i.e. null statement)
-	ExpressionStmt(Option<Box<Expression>>),
+	ExpressionStmt(Option<Expression>),
 }
 
 #[derive(Debug, Clone)]
@@ -83,19 +85,27 @@ pub enum TypeSpecifier {
 	Struct(StructType),
 }
 
+// Simplified function declarator (C11 6.7.6.3)
+#[derive(Debug, Clone)]
+pub struct FunctionDeclarator {
+	pub identifier: Identifier,
+	pub parameters: Vec<Declaration>,
+}
+
 pub struct FunctionDefinition {
 	pub specifier: TypeSpecifier,
-	pub declarator: Identifier,
+	pub declarator: FunctionDeclarator,
 	pub body: Statement, // actually Statement::CompoundStmt
 }
 
 pub enum ExternalDeclaration {
 	FunctionDefinitionDecl(FunctionDefinition),
+	None,
 }
 
 pub struct TranslationUnit(pub Vec<ExternalDeclaration>);
 
-//  10.1145/1942793.1942796
+//  DOI 10.1145/1942793.1942796
 //  https://github.com/vickenty/lang-c
 peg::parser! {grammar parser() for str {
 	rule blank() = [' ' | '\t' | '\n']
@@ -206,31 +216,37 @@ peg::parser! {grammar parser() for str {
 		i:integer_literal() { Expression::ConstantExpr(i) }
 	}
 
-	rule declaration_stmt() -> Statement
-		= blank()+ s:declaration_stmt() { s }
-		/ t:type_specifier() blank()+ i:identifier() blank()* ";" {
-			Statement::DeclarationStmt(Declaration {
+	rule declaration() -> Declaration
+		= blank()+ d:declaration() { d }
+		/ t:type_specifier() blank()+ i:identifier() {
+			Declaration {
 				specifier: t,
 				declarator: i,
-			})
+			}
+		}
+
+	rule declaration_stmt() -> Statement
+		= blank()+ s:declaration_stmt() { s }
+		/ d:declaration() blank()* ";" {
+			Statement::DeclarationStmt(d)
 		}
 
 	rule expression_stmt() -> Statement
 		= blank()+ s:expression_stmt() { s }
-		/ e:expression() blank()* ";" { Statement::ExpressionStmt(Some(Box::new(e))) }
+		/ e:expression() blank()* ";" { Statement::ExpressionStmt(Some(e)) }
 		/ ";" { Statement::ExpressionStmt(None) }
 
 	rule return_stmt() -> Statement
 		= blank()+ s:return_stmt() { s }
 		/ "return" blank()+ e:expression() blank()* ";" {
-			Statement::ReturnStmt(Some(Box::new(e)))
+			Statement::ReturnStmt(Some(e))
 		}
 		/ "return" blank()* ";" { Statement::ReturnStmt(None) }
 
 	rule compound_stmt() -> Statement
 		= blank()+ s:compound_stmt() { s }
 		/ "{" ss:statement()* blank()* "}" {
-			Statement::CompoundStmt(Box::new(ss))
+			Statement::CompoundStmt(ss)
 		}
 
 	rule statement() -> Statement
@@ -239,8 +255,16 @@ peg::parser! {grammar parser() for str {
 		/ declaration_stmt()
 		/ expression_stmt()
 
+	rule function_declarator() -> FunctionDeclarator
+		= i:identifier() blank()* "(" blank()* ds:declaration() ** "," blank()* ")" {
+			FunctionDeclarator {
+				identifier: i,
+				parameters: ds,
+			}
+		}
+
 	rule function_definition() -> FunctionDefinition
-		= t:type_specifier() blank()+ d:identifier() blank()* "(" blank()* ")" b:compound_stmt() {
+		= t:type_specifier() blank()+ blank()* d:function_declarator() b:compound_stmt() {
 			FunctionDefinition {
 				specifier: t,
 				declarator: d,
