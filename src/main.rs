@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use zydis::{AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer};
+use zydis::{
+	AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer,
+};
 
 use structopt::StructOpt;
 
@@ -25,15 +27,21 @@ fn main() {
 	frontend::semantics::check(&tu);
 
 	let mut builder = backend::AbstractMachine::new();
-	let fptr = builder.generate(&tu);
+	let (fname, func) = builder.evaluate(&tu);
+	println!("{}", func);
+
+	let fptr = builder.compile(fname);
 
 	let asm_formatter = {
-		let mut fm = Formatter::new(FormatterStyle::INTEL).expect("Failed to create assembly formatter");
-		fm.set_property(FormatterProperty::HexUppercase(false)).expect("Failed to set assembly formatter property");
+		let mut fm =
+			Formatter::new(FormatterStyle::INTEL).expect("Failed to create assembly formatter");
+		fm.set_property(FormatterProperty::HexUppercase(false))
+			.expect("Failed to set assembly formatter property");
 		fm
 	};
 
-	let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64).expect("Failed to create assembly decoder");
+	let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64)
+		.expect("Failed to create assembly decoder");
 
 	let mut decoded_inst_buffer = [0u8; 200];
 	let mut decoded_inst_buffer = OutputBuffer::new(&mut decoded_inst_buffer[..]);
@@ -56,7 +64,8 @@ mod tests {
 		frontend::semantics::check(&tu);
 
 		let mut am = backend::AbstractMachine::new();
-		let fptr = am.generate(&tu);
+		let (fname, ..) = am.evaluate(&tu);
+		let fptr = am.compile(fname);
 
 		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn() -> i32>(fptr.as_ptr()) };
 		unsafe { fptr() }
@@ -92,7 +101,8 @@ mod tests {
 		frontend::semantics::check(&tu);
 
 		let mut am = backend::AbstractMachine::new();
-		let fptr = am.generate(&tu);
+		let (fname, ..) = am.evaluate(&tu);
+		let fptr = am.compile(fname);
 
 		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn(i32) -> i32>(fptr.as_ptr()) };
 		unsafe { fptr(i) }

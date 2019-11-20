@@ -7,14 +7,18 @@ use std::{
 };
 
 use super::syntax::{
-	BinaryOperator, BinaryOperatorExpression, Declaration, Expression, ExternalDeclaration, FunctionDeclarator, FunctionDefinition, Identifier, Statement, TranslationUnit,
+	BinaryOperator, BinaryOperatorExpression, Declaration, Expression, ExternalDeclaration,
+	FunctionDeclarator, FunctionDefinition, Identifier, Statement, TranslationUnit,
 	UnaryOperatorExpression,
 };
 
-fn check_binding_at_declaration_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, bool>) {
+fn check_binding_declaration_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, bool>) {
 	use Statement::*;
 	match stmt {
-		DeclarationStmt(Declaration { declarator: Identifier(i), .. }) => {
+		DeclarationStmt(Declaration {
+			declarator: Identifier(i),
+			..
+		}) => {
 			let i = i.as_str();
 			if env.contains_key(i) {
 				if env[i] {
@@ -55,7 +59,7 @@ fn check_binding_at_expression(expr: &Expression, env: &HashMap<&str, bool>) {
 	}
 }
 
-fn check_binding_at_expression_statement(stmt: &Statement, env: &HashMap<&str, bool>) {
+fn check_binding_expression_statement(stmt: &Statement, env: &HashMap<&str, bool>) {
 	use Statement::*;
 	match stmt {
 		ExpressionStmt(Some(expr)) => {
@@ -94,15 +98,15 @@ fn check_binding_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, b
 
 					ReturnStmt(_) => check_binding_return_statement(stmt, &local_env),
 
-					DeclarationStmt(_) => check_binding_at_declaration_statement(stmt, &mut local_env),
+					DeclarationStmt(_) => check_binding_declaration_statement(stmt, &mut local_env),
 
-					ExpressionStmt(_) => check_binding_at_expression_statement(stmt, &local_env),
+					ExpressionStmt(_) => check_binding_expression_statement(stmt, &local_env),
 				}
 			}
 		}
 		ReturnStmt(_) => check_binding_return_statement(stmt, env),
-		DeclarationStmt(_) => check_binding_at_declaration_statement(stmt, env),
-		ExpressionStmt(_) => check_binding_at_expression_statement(stmt, env),
+		DeclarationStmt(_) => check_binding_declaration_statement(stmt, env),
+		ExpressionStmt(_) => check_binding_expression_statement(stmt, env),
 	}
 }
 
@@ -128,27 +132,35 @@ fn check_binding(tu: &TranslationUnit) {
 		use ExternalDeclaration::*;
 		match ed {
 			FunctionDefinitionDecl(FunctionDefinition {
-				declarator: FunctionDeclarator {
-					identifier: Identifier(fname),
-					parameters,
-				},
+				declarator:
+					FunctionDeclarator {
+						identifier: Identifier(fname),
+						parameters,
+					},
 				body,
 				..
 			}) => {
 				let fname = fname.as_str();
 				if env.contains_key(fname) {
-					panic!(format!("Function {} already exists in the same scope", fname));
+					panic!(format!(
+						"Function {} already exists in the same scope",
+						fname
+					));
 				} else {
 					env.insert(fname, false);
 					for param in parameters.iter() {
 						let Declaration {
-							declarator: Identifier(pname), ..
+							declarator: Identifier(pname),
+							..
 						} = param;
 						let pname = pname.as_str();
 						if env.contains_key(pname) {
 							if env[pname] {
 								// cannot rebound by an identifer in the same scope
-								panic!(format!("Parameter {} already exists in the same scope", pname))
+								panic!(format!(
+									"Parameter {} already exists in the same scope",
+									pname
+								))
 							} else {
 								// rebound the identifier in the outer scope
 								*env.get_mut(pname).unwrap() = true;
@@ -177,14 +189,21 @@ fn check_value_statement<'a>(stmt: &'a Statement, env: &mut HashSet<&'a str>) {
 			}
 		}
 
-		DeclarationStmt(Declaration { declarator: Identifier(i), .. }) => {
+		DeclarationStmt(Declaration {
+			declarator: Identifier(i),
+			..
+		}) => {
 			env.insert(i.as_str());
 		}
 
 		ExpressionStmt(Some(expr)) => {
 			use Expression::*;
 			match expr {
-				BinaryOperatorExpr(BinaryOperatorExpression { op: BinaryOperator::Asg, lhs, .. }) => match &**lhs {
+				BinaryOperatorExpr(BinaryOperatorExpression {
+					op: BinaryOperator::Asg,
+					lhs,
+					..
+				}) => match &**lhs {
 					IdentifierExpr(Identifier(ident)) => {
 						if !env.contains(ident.as_str()) {
 							panic!(format!("Failed to assign since {} is not a lvalue", ident))
@@ -215,7 +234,8 @@ fn check_value_function(func: &ExternalDeclaration, env: &HashSet<&str>) {
 		let mut env = env.clone();
 		for param in parameters.iter() {
 			let Declaration {
-				declarator: Identifier(pname), ..
+				declarator: Identifier(pname),
+				..
 			} = param;
 			env.insert(pname.as_str());
 		}

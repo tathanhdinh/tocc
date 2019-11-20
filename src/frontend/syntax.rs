@@ -286,3 +286,23 @@ pub fn parse(src_file: impl AsRef<Path>) -> TranslationUnit {
 		panic!("Failed to parse source code")
 	}
 }
+
+pub fn function_name(tu: &TranslationUnit) -> &str {
+	let TranslationUnit(extern_decs) = tu;
+
+	for dec in extern_decs.iter() {
+		use ExternalDeclaration::*;
+		if let FunctionDefinitionDecl(FunctionDefinition {
+			declarator: FunctionDeclarator {
+				identifier: Identifier(fname),
+				..
+			},
+			..
+		}) = dec
+		{
+			return fname.as_str();
+		}
+	}
+
+	panic!("No function in the translation unit")
+}
