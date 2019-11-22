@@ -3,15 +3,18 @@ use std::{fs, hint::unreachable_unchecked, path::Path};
 
 const KEYWORDS: &'static [&'static str] = &["if", "else", "while", "do", "int", "return", "struct"];
 
+#[derive(Debug, Clone)]
 pub enum UnaryOperator {
 	Neg,
 }
 
+#[derive(Debug, Clone)]
 pub struct UnaryOperatorExpression {
 	pub op: UnaryOperator,
 	pub rhs: Box<Expression>,
 }
 
+#[derive(Debug, Clone)]
 pub enum BinaryOperator {
 	Mul,
 	Div,
@@ -20,35 +23,49 @@ pub enum BinaryOperator {
 	Asg,
 }
 
+#[derive(Debug, Clone)]
 pub enum MemberOperator {
 	Direct,
 	Indirect,
 }
 
+#[derive(Debug, Clone)]
 pub struct Integer(pub i32);
 
+#[derive(Debug, Clone)]
 pub enum Constant {
 	IntegerConst(Integer),
 }
 
+#[derive(Debug, Clone)]
 pub struct BinaryOperatorExpression {
 	pub op: BinaryOperator,
 	pub lhs: Box<Expression>,
 	pub rhs: Box<Expression>,
 }
 
+#[derive(Debug, Clone)]
 pub struct MemberExpression {
 	pub operator: MemberOperator,
 	pub expression: Box<Expression>,
 	pub identifier: Identifier,
 }
 
+// Simplified function calls (C11 6.5.5.2 Function calls)
+#[derive(Debug, Clone)]
+pub struct CallExpression {
+	pub callee: Identifier,
+	pub arguments: Vec<Expression>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Expression {
 	UnaryOperatorExpr(UnaryOperatorExpression),
 	BinaryOperatorExpr(BinaryOperatorExpression),
 	ConstantExpr(Constant),
 	IdentifierExpr(Identifier),
 	MemberExpr(MemberExpression),
+	CallExpr(CallExpression),
 }
 
 // Simplified declaration (C11 6.7)
@@ -58,6 +75,7 @@ pub struct Declaration {
 	pub declarator: Identifier,
 }
 
+#[derive(Debug, Clone)]
 pub enum Statement {
 	CompoundStmt(Vec<Statement>),
 
@@ -92,6 +110,7 @@ pub struct FunctionDeclarator {
 	pub parameters: Vec<Declaration>,
 }
 
+#[derive(Debug, Clone)]
 pub struct FunctionDefinition {
 	pub specifier: TypeSpecifier,
 	pub declarator: FunctionDeclarator,
@@ -160,14 +179,14 @@ peg::parser! {grammar parser() for str {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
 				op: BinaryOperator::Add,
 				lhs: Box::new(a),
-				rhs: Box::new(b)
+				rhs: Box::new(b),
 			})
 		}
 		a:(@) blank()* "-" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
 				op: BinaryOperator::Sub,
 				lhs: Box::new(a),
-				rhs: Box::new(b)
+				rhs: Box::new(b),
 			})
 		}
 		"-" blank()* a:@ {
@@ -181,14 +200,21 @@ peg::parser! {grammar parser() for str {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
 				op: BinaryOperator::Mul,
 				lhs: Box::new(a),
-				rhs: Box::new(b)
+				rhs: Box::new(b),
 			})
 		}
 		a:(@) blank()* "/" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
 				op: BinaryOperator::Div,
 				lhs: Box::new(a),
-				rhs: Box::new(b)
+				rhs: Box::new(b),
+			})
+		}
+		--
+		i:identifier() "(" blank()* es:expression() ** "," blank()* ")" {
+			Expression::CallExpr(CallExpression {
+				callee: i,
+				arguments: es,
 			})
 		}
 		--
@@ -264,7 +290,8 @@ peg::parser! {grammar parser() for str {
 		}
 
 	rule function_definition() -> FunctionDefinition
-		= t:type_specifier() blank()+ blank()* d:function_declarator() b:compound_stmt() {
+		= blank()+ f:function_definition() { f }
+		/ t:type_specifier() blank()+ blank()* d:function_declarator() b:compound_stmt() {
 			FunctionDefinition {
 				specifier: t,
 				declarator: d,
@@ -273,8 +300,10 @@ peg::parser! {grammar parser() for str {
 		}
 
 	pub rule translation_unit() -> TranslationUnit
-		= f:function_definition() {
-			TranslationUnit(vec![ExternalDeclaration::FunctionDefinitionDecl(f)])
+		= blank()+ tu:translation_unit() { tu }
+		/ fs:function_definition()* blank()* {
+			let eds: Vec<_> = fs.iter().map(|f| ExternalDeclaration::FunctionDefinitionDecl(f.clone())).collect();
+			TranslationUnit(eds)
 		}
 }}
 

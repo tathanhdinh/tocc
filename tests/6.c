@@ -1,15 +1,9 @@
-struct S {
-    int x;
-    int y;
-};
-
-int foo(struct S s) {
-    return s.x + s.y;
+int foo(int x) {
+    return x + 7;
 }
 
 int bar() {
-    struct S s;
-    s.x = 10;
-    s.y = 15;
-    return foo(s);
+    int x;
+    x = 10;
+    return foo(x);
 }

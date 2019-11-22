@@ -12,6 +12,9 @@ use super::syntax::{
 	UnaryOperatorExpression,
 };
 
+// use crate::helper::{error};
+use crate::error;
+
 fn check_binding_declaration_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, bool>) {
 	use Statement::*;
 	match stmt {
@@ -206,7 +209,8 @@ fn check_value_statement<'a>(stmt: &'a Statement, env: &mut HashSet<&'a str>) {
 				}) => match &**lhs {
 					IdentifierExpr(Identifier(ident)) => {
 						if !env.contains(ident.as_str()) {
-							panic!(format!("Failed to assign since {} is not a lvalue", ident))
+							// panic!(format!("Failed to assign since {} is not a lvalue", ident))
+							error!("Failed to assign since {} is not a lvalue", ident)
 						}
 					}
 					_ => {}
