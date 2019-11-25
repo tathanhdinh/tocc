@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use zydis::{
 	AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer,
@@ -24,11 +24,10 @@ struct Opt {
 
 fn main() {
 	let opt = Opt::from_args();
-	let (src, fname) = {
-		(opt.src.as_path(), opt.fname.as_str())
-	};
+	let (src, fname) = { (opt.src.as_path(), opt.fname.as_str()) };
 
-	let tu = frontend::syntax::parse(src);
+	let src_code = fs::read_to_string(src).expect("Failed to read source code file");
+	let tu = frontend::syntax::parse(src_code.as_str());
 	frontend::semantics::check(&tu);
 
 	let mut am = backend::AbstractMachine::new(&tu);
@@ -67,7 +66,8 @@ mod tests {
 
 	// tests 0, 1, 2, 3, 4
 	fn compile_and_run_void_to_int(file: impl AsRef<Path>, fname: &str) -> i32 {
-		let tu = frontend::syntax::parse(file);
+		let src = fs::read_to_string(file).expect("failed to read source code file");
+		let tu = frontend::syntax::parse(src.as_str());
 		frontend::semantics::check(&tu);
 
 		let mut am = backend::AbstractMachine::new(&tu);
@@ -79,7 +79,8 @@ mod tests {
 
 	// tests 5
 	fn compile_and_run_int_to_int(file: impl AsRef<Path>, fname: &str, i: i32) -> i32 {
-		let tu = frontend::syntax::parse(file);
+		let src = fs::read_to_string(file).expect("failed to read source code file");
+		let tu = frontend::syntax::parse(src.as_str());
 		frontend::semantics::check(&tu);
 
 		let mut am = backend::AbstractMachine::new(&tu);
@@ -122,5 +123,10 @@ mod tests {
 	#[test]
 	fn compile_6() {
 		assert_eq!(compile_and_run_void_to_int("tests/6.c", "bar"), 17);
+	}
+
+	#[test]
+	fn compile_7() {
+		assert_eq!(compile_and_run_void_to_int("tests/7.c", "bar"), 70);
 	}
 }

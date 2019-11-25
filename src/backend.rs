@@ -4,17 +4,21 @@
 
 use cranelift_codegen::ir::Function;
 use cranelift_module::FuncId;
-use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
+use cranelift_simplejit::SimpleJITBuilder;
 
-mod ir;
+mod support;
+mod translation;
 
-use crate::frontend::syntax::{function_name, TranslationUnit};
-use ir::{BackedModule, Environment, FunctionIdentifier, SimpleTypedIdentifier};
+use crate::frontend::syntax::TranslationUnit;
+use support::{
+	BackedModule, FunctionIdentifier, NameBindingEnvironment, SimpleTypedIdentifier,
+	TypeBindingEnvironment,
+};
 
 // an abstract machine that runs Cranelift IR
 pub struct AbstractMachine<'s> {
 	module: BackedModule,
-	env: Environment<'s>,
+	name_env: NameBindingEnvironment<'s>,
 	compiled_funcs: Vec<(Function, FuncId, usize)>,
 }
 
@@ -22,29 +26,18 @@ impl<'s> AbstractMachine<'s> {
 	pub fn new(tu: &'s TranslationUnit) -> Self {
 		let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
 		let mut module = BackedModule::new(builder);
-		let mut env = Environment::new();
-		let compiled_funcs = ir::compile(tu, &mut module, &mut env);
+		let mut name_env = NameBindingEnvironment::new();
+		let mut type_env = TypeBindingEnvironment::new();
+		let compiled_funcs = translation::compile(tu, &mut module, &mut name_env, &mut type_env);
 
-		AbstractMachine {
-			module,
-			env,
-			compiled_funcs,
-		}
+		AbstractMachine { module, name_env, compiled_funcs }
 	}
 
-	// pub fn compile(&mut self, tu: &'s TranslationUnit) {
-	// 	let compiled_funcs = ir::compile(tu, &mut self.module, &mut self.env);
-	// 	self.compiled_funcs = compiled_funcs;
-	// }
-
 	pub fn compiled_function(&mut self, fname: &'_ str) -> Option<(&Function, &[u8])> {
-		let ident = self.env.get(fname)?;
-		if let SimpleTypedIdentifier::Function(FunctionIdentifier { function_id, .. }) = ident {
-			let (fclif, fid, flen) = self
-				.compiled_funcs
-				.iter()
-				.find(|(_, fid, _)| fid == function_id)?;
-			let fptr = ir::compiled_function(*fid, *flen, &mut self.module);
+		let ident = self.name_env.get(fname)?;
+		if let SimpleTypedIdentifier::FunctionIdent(FunctionIdentifier { ident, .. }) = ident {
+			let (fclif, fid, flen) = self.compiled_funcs.iter().find(|(_, fid, _)| fid == ident)?;
+			let fptr = translation::compiled_function(*fid, *flen, &mut self.module);
 			Some((fclif, fptr))
 		} else {
 			None

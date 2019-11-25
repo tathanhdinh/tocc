@@ -1,128 +1,153 @@
 // syntax analysis
-use std::{fs, hint::unreachable_unchecked, path::Path};
+use std::hint::unreachable_unchecked;
 
-const KEYWORDS: &'static [&'static str] = &["if", "else", "while", "do", "int", "return", "struct"];
+const KEYWORDS: &'static [&'static str] =
+	&["if", "else", "while", "do", "char", "short", "int", "long", "return", "struct"];
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum UnaryOperator {
-	Neg,
+	Negation,
+	Address,
 }
 
-#[derive(Debug, Clone)]
-pub struct UnaryOperatorExpression {
+#[derive(Clone)]
+pub struct UnaryOperatorExpression<'a> {
 	pub op: UnaryOperator,
-	pub rhs: Box<Expression>,
+	pub rhs: Box<Expression<'a>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum BinaryOperator {
-	Mul,
-	Div,
-	Add,
-	Sub,
-	Asg,
+	Multiplication,
+	Division,
+	Addition,
+	Subtraction,
+	Assignment,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum MemberOperator {
 	Direct,
 	Indirect,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Integer(pub i32);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Constant {
 	IntegerConst(Integer),
 }
 
-#[derive(Debug, Clone)]
-pub struct BinaryOperatorExpression {
+#[derive(Clone)]
+pub struct BinaryOperatorExpression<'a> {
 	pub op: BinaryOperator,
-	pub lhs: Box<Expression>,
-	pub rhs: Box<Expression>,
+	pub lhs: Box<Expression<'a>>,
+	pub rhs: Box<Expression<'a>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct MemberExpression {
+#[derive(Clone)]
+pub struct MemberExpression<'a> {
 	pub operator: MemberOperator,
-	pub expression: Box<Expression>,
-	pub identifier: Identifier,
+	pub expression: Box<Expression<'a>>,
+	pub identifier: Identifier<'a>,
 }
 
 // Simplified function calls (C11 6.5.5.2 Function calls)
-#[derive(Debug, Clone)]
-pub struct CallExpression {
-	pub callee: Identifier,
-	pub arguments: Vec<Expression>,
+#[derive(Clone)]
+pub struct CallExpression<'a> {
+	pub callee: Identifier<'a>,
+	pub arguments: Vec<Expression<'a>>,
 }
 
-#[derive(Debug, Clone)]
-pub enum Expression {
-	UnaryOperatorExpr(UnaryOperatorExpression),
-	BinaryOperatorExpr(BinaryOperatorExpression),
+#[derive(Clone)]
+pub enum Expression<'a> {
+	UnaryOperatorExpr(UnaryOperatorExpression<'a>),
+	BinaryOperatorExpr(BinaryOperatorExpression<'a>),
 	ConstantExpr(Constant),
-	IdentifierExpr(Identifier),
-	MemberExpr(MemberExpression),
-	CallExpr(CallExpression),
+	IdentifierExpr(Identifier<'a>),
+	MemberExpr(MemberExpression<'a>),
+	CallExpr(CallExpression<'a>),
 }
 
-// Simplified declaration (C11 6.7)
-#[derive(Debug, Clone)]
-pub struct Declaration {
-	pub specifier: TypeSpecifier,
-	pub declarator: Identifier,
+#[derive(Clone)]
+pub enum DerivedDeclarator {
+	Pointer,
 }
 
-#[derive(Debug, Clone)]
-pub enum Statement {
-	CompoundStmt(Vec<Statement>),
+// Simplified declarators
+// C11 Standard: 6.7.6 Declarators
+#[derive(Clone)]
+pub struct Declarator<'a> {
+	pub ident: Identifier<'a>,
+	pub derived: Option<DerivedDeclarator>,
+}
+
+// Simplified declaration
+// C11 Standard 6.7 Declarations
+#[derive(Clone)]
+pub struct Declaration<'a> {
+	pub specifier: TypeSpecifier<'a>,
+	pub declarator: Option<Declarator<'a>>,
+}
+
+#[derive(Clone)]
+pub enum Statement<'a> {
+	CompoundStmt(Vec<Statement<'a>>),
 
 	// e.g. return 1 + 2; or just return;
-	ReturnStmt(Option<Expression>),
+	ReturnStmt(Option<Expression<'a>>),
 
 	// e.g. int i;
-	DeclarationStmt(Declaration),
+	DeclarationStmt(Declaration<'a>),
 
 	// e.g. i = 10; or just ; (i.e. null statement)
-	ExpressionStmt(Option<Expression>),
+	ExpressionStmt(Option<Expression<'a>>),
 }
 
-#[derive(Debug, Clone)]
-pub struct Identifier(pub String);
+#[derive(Clone)]
+pub struct Identifier<'a>(pub &'a str);
 
-#[derive(Debug, Clone)]
-pub struct StructType {
-	pub identifier: Identifier,
-	pub declarations: Option<Vec<Declaration>>,
-}
-#[derive(Debug, Clone)]
-pub enum TypeSpecifier {
-	Int,
-	Struct(StructType),
+#[derive(Clone)]
+pub struct StructType<'a> {
+	pub identifier: Identifier<'a>,
+	pub declarations: Option<Vec<Declaration<'a>>>,
 }
 
-// Simplified function declarator (C11 6.7.6.3)
-#[derive(Debug, Clone)]
-pub struct FunctionDeclarator {
-	pub identifier: Identifier,
-	pub parameters: Vec<Declaration>,
+// Plain signed types
+// System V ABI: 3.1.2 Data Representation
+// C11 Standard: 6.2.5 Types
+#[derive(Clone)]
+pub enum TypeSpecifier<'a> {
+	CharTy,
+	ShortTy,
+	IntTy,
+	LongTy,
+	StructTy(StructType<'a>),
 }
 
-#[derive(Debug, Clone)]
-pub struct FunctionDefinition {
-	pub specifier: TypeSpecifier,
-	pub declarator: FunctionDeclarator,
-	pub body: Statement, // actually Statement::CompoundStmt
+// Simplified function declarator
+// C11 Standard: 6.7.6.3
+#[derive(Clone)]
+pub struct FunctionDeclarator<'a> {
+	pub identifier: Identifier<'a>,
+	pub parameters: Vec<Declaration<'a>>,
 }
 
-pub enum ExternalDeclaration {
-	FunctionDefinitionDecl(FunctionDefinition),
-	None,
+#[derive(Clone)]
+pub struct FunctionDefinition<'a> {
+	pub specifier: TypeSpecifier<'a>,
+	pub declarator: FunctionDeclarator<'a>,
+	pub body: Statement<'a>, // actually Statement::CompoundStmt
 }
 
-pub struct TranslationUnit(pub Vec<ExternalDeclaration>);
+#[derive(Clone)]
+pub enum ExternalDeclaration<'a> {
+	FunctionDefinitionDecl(FunctionDefinition<'a>),
+	Decl(Declaration<'a>),
+}
+
+pub struct TranslationUnit<'a>(pub Vec<ExternalDeclaration<'a>>);
 
 //  DOI 10.1145/1942793.1942796
 //  https://github.com/vickenty/lang-c
@@ -131,17 +156,20 @@ peg::parser! {grammar parser() for str {
 	rule digit() = ['0'..='9']
 	rule letter() = ['a'..='z' | 'A'..='Z' | '_']
 
-	rule identifier() -> Identifier
+	rule identifier() -> Identifier<'input>
 		= i:$(letter() (letter() / digit())*) {?
 			if KEYWORDS.contains(&i) {
 				Err("identifier is a keyword")
 			} else {
-				Ok(Identifier(i.to_owned()))
+				Ok(Identifier(i))
 			}
 		}
 
-	rule type_specifier() -> TypeSpecifier
-		= "int" { TypeSpecifier::Int }
+	rule type_specifier() -> TypeSpecifier<'input>
+		= "char" { TypeSpecifier::CharTy }
+		/ "short" { TypeSpecifier::ShortTy }
+		/ "int" { TypeSpecifier::IntTy }
+		/ "long" { TypeSpecifier::LongTy }
 		/ "struct" blank()+ i:identifier() blank()* "{" blank()* dss:declaration_stmt()* blank()* "}" {
 			let ds: Vec<_> = dss.iter().map(|s| {
 				use Statement::*;
@@ -149,13 +177,13 @@ peg::parser! {grammar parser() for str {
 					DeclarationStmt(d) => d.clone(),
 					_ => unsafe { unreachable_unchecked() }
 			}}).collect();
-			TypeSpecifier::Struct(StructType {
+			TypeSpecifier::StructTy(StructType {
 				identifier: i,
 				declarations: Some(ds)
 			})
 		}
 		/ "struct" blank()+ i:identifier() {
-			TypeSpecifier::Struct(StructType {
+			TypeSpecifier::StructTy(StructType {
 				identifier: i,
 				declarations: None
 			})
@@ -166,10 +194,11 @@ peg::parser! {grammar parser() for str {
 			Constant::IntegerConst(Integer(i.parse().unwrap()))
 		}
 
-	rule expression() -> Expression = precedence!{
+	// https://en.cppreference.com/w/c/language/operator_precedence
+	rule expression() -> Expression<'input> = precedence!{
 		a:@ blank()* "=" blank()* b:(@) {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Asg,
+				op: BinaryOperator::Assignment,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
@@ -177,35 +206,29 @@ peg::parser! {grammar parser() for str {
 		--
 		a:(@) blank()* "+" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Add,
+				op: BinaryOperator::Addition,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
 		}
 		a:(@) blank()* "-" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Sub,
+				op: BinaryOperator::Subtraction,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
-			})
-		}
-		"-" blank()* a:@ {
-			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
-				op: UnaryOperator::Neg,
-				rhs: Box::new(a),
 			})
 		}
 		--
 		a:(@) blank()* "*" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Mul,
+				op: BinaryOperator::Multiplication,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
 		}
 		a:(@) blank()* "/" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Div,
+				op: BinaryOperator::Division,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
@@ -218,6 +241,19 @@ peg::parser! {grammar parser() for str {
 			})
 		}
 		--
+		"-" blank()* a:@ {
+			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
+				op: UnaryOperator::Negation,
+				rhs: Box::new(a),
+			})
+		}
+		"&" blank()* a:@ {
+			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
+				op: UnaryOperator::Address,
+				rhs: Box::new(a),
+			})
+		}
+		--
 		a:(@) "." b:identifier() {
 			Expression::MemberExpr(MemberExpression {
 				operator: MemberOperator::Direct,
@@ -225,7 +261,7 @@ peg::parser! {grammar parser() for str {
 				identifier: b,
 			})
 		}
-		a:(@) "->" b:identifier() @ {
+		a:(@) "->" b:identifier() {
 			Expression::MemberExpr(MemberExpression {
 				operator: MemberOperator::Indirect,
 				expression: Box::new(a),
@@ -242,54 +278,85 @@ peg::parser! {grammar parser() for str {
 		i:integer_literal() { Expression::ConstantExpr(i) }
 	}
 
-	rule declaration() -> Declaration
-		= blank()+ d:declaration() { d }
-		/ t:type_specifier() blank()+ i:identifier() {
-			Declaration {
-				specifier: t,
-				declarator: i,
+	rule derived_declarator() -> DerivedDeclarator
+		= "*" {
+			DerivedDeclarator::Pointer
+		}
+
+	rule declarator() -> Declarator<'input>
+		= d:derived_declarator()? blank()* i:identifier() {
+			Declarator {
+				ident: i,
+				derived: d,
 			}
 		}
 
-	rule declaration_stmt() -> Statement
+	rule declaration() -> Declaration<'input>
+		= blank()+ d:declaration() { d }
+		/ t:type_specifier() blank()+ d:declarator() blank()* {
+			Declaration {
+				specifier: t,
+				declarator: Some(d),
+			}
+		}
+		/ t:type_specifier() blank()* {?
+			match t {
+				TypeSpecifier::StructTy(_) => {
+					Ok(Declaration {
+						specifier: t,
+						declarator: None,
+					})
+				}
+
+				_ => {
+					Err("declarator is obliged for primitive types")
+				}
+			}
+		}
+
+	rule declaration_stmt() -> Statement<'input>
 		= blank()+ s:declaration_stmt() { s }
 		/ d:declaration() blank()* ";" {
 			Statement::DeclarationStmt(d)
 		}
 
-	rule expression_stmt() -> Statement
+	rule expression_stmt() -> Statement<'input>
 		= blank()+ s:expression_stmt() { s }
 		/ e:expression() blank()* ";" { Statement::ExpressionStmt(Some(e)) }
 		/ ";" { Statement::ExpressionStmt(None) }
 
-	rule return_stmt() -> Statement
+	rule return_stmt() -> Statement<'input>
 		= blank()+ s:return_stmt() { s }
 		/ "return" blank()+ e:expression() blank()* ";" {
 			Statement::ReturnStmt(Some(e))
 		}
 		/ "return" blank()* ";" { Statement::ReturnStmt(None) }
 
-	rule compound_stmt() -> Statement
+	rule compound_stmt() -> Statement<'input>
 		= blank()+ s:compound_stmt() { s }
 		/ "{" ss:statement()* blank()* "}" {
 			Statement::CompoundStmt(ss)
 		}
 
-	rule statement() -> Statement
+	rule statement() -> Statement<'input>
 		= compound_stmt()
 		/ return_stmt()
 		/ declaration_stmt()
 		/ expression_stmt()
 
-	rule function_declarator() -> FunctionDeclarator
-		= i:identifier() blank()* "(" blank()* ds:declaration() ** "," blank()* ")" {
-			FunctionDeclarator {
-				identifier: i,
-				parameters: ds,
+	rule function_declarator() -> FunctionDeclarator<'input>
+		= i:identifier() blank()* "(" blank()* ds:declaration() ** "," blank()* ")" {?
+			if ds.iter().any(|Declaration { declarator, .. }| declarator.is_none()) {
+				Err("parameter name not found")
+			} else {
+				Ok(FunctionDeclarator {
+					identifier: i,
+					parameters: ds,
+				})
 			}
 		}
 
-	rule function_definition() -> FunctionDefinition
+	rule function_definition() -> FunctionDefinition<'input>
 		= blank()+ f:function_definition() { f }
 		/ t:type_specifier() blank()+ blank()* d:function_declarator() b:compound_stmt() {
 			FunctionDefinition {
@@ -299,39 +366,52 @@ peg::parser! {grammar parser() for str {
 			}
 		}
 
-	pub rule translation_unit() -> TranslationUnit
+	rule external_declaration() -> ExternalDeclaration<'input>
+		= blank()+ e:external_declaration() { e }
+		/ f:function_definition() {
+			ExternalDeclaration::FunctionDefinitionDecl(f)
+		}
+		/ d:declaration_stmt() {
+			if let Statement::DeclarationStmt(d) = d {
+				ExternalDeclaration::Decl(d)
+			} else {
+				unsafe { unreachable_unchecked() }
+			}
+		}
+
+	pub rule translation_unit() -> TranslationUnit<'input>
 		= blank()+ tu:translation_unit() { tu }
-		/ fs:function_definition()* blank()* {
-			let eds: Vec<_> = fs.iter().map(|f| ExternalDeclaration::FunctionDefinitionDecl(f.clone())).collect();
+		/ eds:external_declaration()* blank()* {
 			TranslationUnit(eds)
 		}
 }}
 
-pub fn parse(src_file: impl AsRef<Path>) -> TranslationUnit {
-	let src_code = fs::read_to_string(src_file).expect("Failed to read source code file");
+// pub fn parse(src_file: impl AsRef<Path>) -> TranslationUnit {
+pub fn parse(src_code: &str) -> TranslationUnit {
+	// let src_code = fs::read_to_string(src_file).expect("Failed to read source code file");
 	if let Ok(tu) = parser::translation_unit(&src_code) {
 		tu
 	} else {
-		panic!("Failed to parse source code")
+		panic!("failed to parse source code")
 	}
 }
 
-pub fn function_name(tu: &TranslationUnit) -> &str {
-	let TranslationUnit(extern_decs) = tu;
+// pub fn function_name(tu: &TranslationUnit) -> &str {
+// 	let TranslationUnit(extern_decs) = tu;
 
-	for dec in extern_decs.iter() {
-		use ExternalDeclaration::*;
-		if let FunctionDefinitionDecl(FunctionDefinition {
-			declarator: FunctionDeclarator {
-				identifier: Identifier(fname),
-				..
-			},
-			..
-		}) = dec
-		{
-			return fname.as_str();
-		}
-	}
+// 	for dec in extern_decs.iter() {
+// 		use ExternalDeclaration::*;
+// 		if let FunctionDefinitionDecl(FunctionDefinition {
+// 			declarator: FunctionDeclarator {
+// 				identifier: Identifier(fname),
+// 				..
+// 			},
+// 			..
+// 		}) = dec
+// 		{
+// 			return fname.as_str();
+// 		}
+// 	}
 
-	panic!("No function in the translation unit")
-}
+// 	panic!("No function in the translation unit")
+// }

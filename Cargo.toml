@@ -1,8 +1,8 @@
 [package]
-name = "tocc"
+name = "ccc"
 version = "0.1.0"
 authors = ["TA Thanh Dinh <tathanhdinh@gmail.com>"]
-description = "A type-obfuscated C compiler"
+description = "Crapaud Cornu C - A Type-Blurred C compiler"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,7 +14,6 @@ cranelift-module = "0.51.0"
 cranelift-codegen = "0.51.0"
 cranelift-simplejit = "0.51.0"
 cranelift-preopt = "0.51.0"
-libc = "0.2.65"
 zydis = "3.0.0"
 peg = "0.6.0"
 structopt = "0.3.5"

@@ -7,109 +7,112 @@ use std::{
 };
 
 use super::syntax::{
-	BinaryOperator, BinaryOperatorExpression, Declaration, Expression, ExternalDeclaration,
-	FunctionDeclarator, FunctionDefinition, Identifier, Statement, TranslationUnit,
-	UnaryOperatorExpression,
+	BinaryOperator, BinaryOperatorExpression, Declaration, Declarator, Expression,
+	ExternalDeclaration, FunctionDeclarator, FunctionDefinition, Identifier, Statement, StructType,
+	TranslationUnit, TypeSpecifier, UnaryOperatorExpression,
 };
 
-// use crate::helper::{error};
-use crate::error;
+use crate::{error, unimpl};
 
-fn check_binding_declaration_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, bool>) {
-	use Statement::*;
-	match stmt {
-		DeclarationStmt(Declaration {
-			declarator: Identifier(i),
-			..
-		}) => {
-			let i = i.as_str();
-			if env.contains_key(i) {
-				if env[i] {
-					// cannot rebound by an identifer in the same scope
-					panic!(format!("Variable {} already exists in the same scope", i))
-				} else {
-					// rebound the identifier in the outer scope
-					*env.get_mut(i).unwrap() = true;
-				}
+type NameBindingEnvironment<'a> = HashMap<&'a str, bool>;
+type TypeBindingEnvironment<'a> = HashMap<&'a str, bool>;
+
+fn check_binding_declaration<'a>(
+	decl: &'a Declaration<'a>, name_env: &'_ mut NameBindingEnvironment<'a>,
+	type_env: &'_ mut TypeBindingEnvironment<'a>,
+) {
+	let Declaration { specifier, declarator } = decl;
+	if let Some(Declarator { ident: Identifier(var_name), .. }) = declarator {
+		if name_env.contains_key(var_name) {
+			if name_env[var_name] {
+				// cannot rebound by an identifer in the same scope
+				error!("variable {} already exists in the same scope", var_name)
 			} else {
-				env.insert(i, false);
+				// rebound the identifier in the outer scope
+				*name_env.get_mut(var_name).unwrap() = true;
 			}
+		} else {
+			name_env.insert(var_name, false);
 		}
-
-		_ => unsafe { unreachable_unchecked() },
+	} else {
+		// should be some struct type declaration
+		use TypeSpecifier::*;
+		match specifier {
+			StructTy(StructType { identifier: Identifier(ty_name), declarations }) => {
+				if type_env.contains_key(ty_name) {
+					if declarations.is_some() {
+						*type_env.get_mut(ty_name).unwrap() = true;
+					}
+				} else {
+					if declarations.is_none() {
+						error!("struct {}'s definition not found", ty_name)
+					} else {
+						type_env.insert(ty_name, false);
+					}
+				}
+			}
+			_ => error!("identifier not found"),
+		}
 	}
 }
 
-fn check_binding_at_expression(expr: &Expression, env: &HashMap<&str, bool>) {
+fn check_binding_at_expression(expr: &'_ Expression, env: &'_ NameBindingEnvironment) {
 	use Expression::*;
 	match expr {
 		IdentifierExpr(Identifier(i)) => {
-			if !env.contains_key(i.as_str()) {
-				panic!(format!("Variable {} doesn't exist", i))
+			if !env.contains_key(i) {
+				error!("variable {} doesn't exist", i)
 			}
 		}
 
 		UnaryOperatorExpr(UnaryOperatorExpression { rhs, .. }) => {
-			check_binding_at_expression(&**rhs, env);
+			check_binding_at_expression(rhs.as_ref(), env);
 		}
 
 		BinaryOperatorExpr(BinaryOperatorExpression { rhs, lhs, .. }) => {
-			check_binding_at_expression(&**lhs, env);
-			check_binding_at_expression(&**rhs, env);
+			check_binding_at_expression(lhs.as_ref(), env);
+			check_binding_at_expression(rhs.as_ref(), env);
 		}
 
 		_ => {}
 	}
 }
 
-fn check_binding_expression_statement(stmt: &Statement, env: &HashMap<&str, bool>) {
-	use Statement::*;
-	match stmt {
-		ExpressionStmt(Some(expr)) => {
-			check_binding_at_expression(expr, env);
-		}
-
-		_ => unsafe { unreachable_unchecked() },
-	}
-}
-
-fn check_binding_return_statement(stmt: &Statement, env: &HashMap<&str, bool>) {
-	use Statement::*;
-	match stmt {
-		ReturnStmt(stmt) => {
-			if let Some(expr) = stmt {
-				check_binding_at_expression(expr, env)
-			}
-		}
-
-		_ => unsafe { unreachable_unchecked() },
-	}
-}
-
-fn check_binding_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, bool>) {
+fn check_binding_statement<'a>(
+	stmt: &'a Statement, name_env: &'_ mut NameBindingEnvironment<'a>,
+	type_env: &'_ mut TypeBindingEnvironment<'a>,
+) {
 	use Statement::*;
 	match stmt {
 		CompoundStmt(stmts) => {
-			let mut local_env = env.clone();
-			for (_, val) in local_env.iter_mut() {
+			let mut local_name_env = name_env.clone();
+			for (_, val) in local_name_env.iter_mut() {
 				*val = false;
 			}
 
-			for stmt in stmts.iter() {
-				match stmt {
-					CompoundStmt(_) => check_binding_statement(stmt, &mut local_env),
+			let mut local_type_env = type_env.clone();
+			for (_, val) in local_type_env.iter_mut() {
+				*val = false;
+			}
 
-					ReturnStmt(_) => check_binding_return_statement(stmt, &local_env),
-
-					DeclarationStmt(_) => check_binding_declaration_statement(stmt, &mut local_env),
-
-					ExpressionStmt(_) => check_binding_expression_statement(stmt, &local_env),
-				}
+			for stmt in stmts {
+				check_binding_statement(stmt, &mut local_name_env, &mut local_type_env);
 			}
 		}
-		ReturnStmt(_) => check_binding_return_statement(stmt, env),
-		DeclarationStmt(_) => check_binding_declaration_statement(stmt, env),
-		ExpressionStmt(_) => check_binding_expression_statement(stmt, env),
+
+		ReturnStmt(expr) => {
+			if let Some(expr) = expr {
+				check_binding_at_expression(expr, name_env);
+			}
+		}
+
+		DeclarationStmt(decl) => check_binding_declaration(decl, name_env, type_env),
+
+		ExpressionStmt(expr) => {
+			if let Some(expr) = expr {
+				check_binding_at_expression(expr, name_env);
+			}
+		}
 	}
 }
 
@@ -126,91 +129,68 @@ fn check_binding_statement<'a>(stmt: &'a Statement, env: &mut HashMap<&'a str, b
 //       - no: error, an identifer cannot rebound by some identifer in the same scope
 // Before going to a nested scope:
 //   - duplicate the outer environment, all value set to true
-fn check_binding(tu: &TranslationUnit) {
-	// global environment
-	let mut env = HashMap::new();
+fn check_binding(tu: &'_ TranslationUnit) {
+	// global contexts
+	let mut name_env = NameBindingEnvironment::new();
+	let mut type_env = TypeBindingEnvironment::new();
 
 	let TranslationUnit(eds) = tu;
-	for ed in eds.iter() {
+	for ed in eds {
 		use ExternalDeclaration::*;
 		match ed {
 			FunctionDefinitionDecl(FunctionDefinition {
-				declarator:
-					FunctionDeclarator {
-						identifier: Identifier(fname),
-						parameters,
-					},
+				declarator: FunctionDeclarator { identifier: Identifier(fname), parameters },
 				body,
 				..
 			}) => {
-				let fname = fname.as_str();
-				if env.contains_key(fname) {
-					panic!(format!(
-						"Function {} already exists in the same scope",
-						fname
-					));
+				// check name binding context
+				if name_env.contains_key(fname) {
+					error!("function {} already exists in the same scope", fname);
 				} else {
-					env.insert(fname, false);
-					for param in parameters.iter() {
-						let Declaration {
-							declarator: Identifier(pname),
-							..
-						} = param;
-						let pname = pname.as_str();
-						if env.contains_key(pname) {
-							if env[pname] {
-								// cannot rebound by an identifer in the same scope
-								panic!(format!(
-									"Parameter {} already exists in the same scope",
-									pname
-								))
-							} else {
-								// rebound the identifier in the outer scope
-								*env.get_mut(pname).unwrap() = true;
-							}
-						} else {
-							env.insert(pname, false);
-						}
+					name_env.insert(fname, false);
+					for decl in parameters {
+						check_binding_declaration(decl, &mut name_env, &mut type_env);
 					}
 				}
-
-				check_binding_statement(body, &mut env)
+				check_binding_statement(body, &mut name_env, &mut type_env)
 			}
 
-			_ => panic!("Unsupported external declaration"),
+			Decl(decl) => {
+				check_binding_declaration(decl, &mut name_env, &mut type_env);
+			}
 		}
 	}
 }
 
-fn check_value_statement<'a>(stmt: &'a Statement, env: &mut HashSet<&'a str>) {
+fn check_lr_value_statement<'a>(
+	stmt: &'a Statement<'a>, bounded_identifiers: &'_ mut HashSet<&'a str>,
+) {
 	use Statement::*;
 	match stmt {
 		CompoundStmt(stmts) => {
-			let mut nested_env = env.clone();
-			for stmt in stmts.iter() {
-				check_value_statement(stmt, &mut nested_env);
+			let mut local_bounded_identifiers = bounded_identifiers.clone();
+			for stmt in stmts {
+				check_lr_value_statement(stmt, &mut local_bounded_identifiers);
 			}
 		}
 
-		DeclarationStmt(Declaration {
-			declarator: Identifier(i),
-			..
-		}) => {
-			env.insert(i.as_str());
+		DeclarationStmt(Declaration { declarator, .. }) => {
+			if let Some(Declarator { ident: Identifier(i), .. }) = declarator {
+				bounded_identifiers.insert(i);
+			}
 		}
 
 		ExpressionStmt(Some(expr)) => {
 			use Expression::*;
 			match expr {
 				BinaryOperatorExpr(BinaryOperatorExpression {
-					op: BinaryOperator::Asg,
+					op: BinaryOperator::Assignment,
 					lhs,
 					..
-				}) => match &**lhs {
+				}) => match lhs.as_ref() {
 					IdentifierExpr(Identifier(ident)) => {
-						if !env.contains(ident.as_str()) {
-							// panic!(format!("Failed to assign since {} is not a lvalue", ident))
-							error!("Failed to assign since {} is not a lvalue", ident)
+						if !bounded_identifiers.contains(ident) {
+							error!("failed to assign, {} is not a lvalue", ident)
 						}
 					}
 					_ => {}
@@ -223,55 +203,65 @@ fn check_value_statement<'a>(stmt: &'a Statement, env: &mut HashSet<&'a str>) {
 	}
 }
 
-fn check_value_function(func: &ExternalDeclaration, env: &HashSet<&str>) {
-	use ExternalDeclaration::*;
-	if let FunctionDefinitionDecl(FunctionDefinition {
+fn check_lr_value_function<'a>(
+	func: &'a FunctionDefinition<'a>, bounded_identifiers: &'_ HashSet<&str>,
+) {
+	let FunctionDefinition {
 		declarator: FunctionDeclarator {
 			parameters,
-			// TODO: check function
+			// function is not denoted
 			..
 		},
 		body,
 		..
-	}) = func
-	{
-		let mut env = env.clone();
-		for param in parameters.iter() {
-			let Declaration {
-				declarator: Identifier(pname),
-				..
-			} = param;
-			env.insert(pname.as_str());
+	} = func;
+
+	let mut local_bounded_identifiers = bounded_identifiers.clone();
+	for Declaration { declarator, .. } in parameters {
+		if let Some(Declarator { ident: Identifier(pname), .. }) = declarator {
+			local_bounded_identifiers.insert(pname);
+		} else {
+			// checked in syntax analysis
+			unsafe { unreachable_unchecked() }
 		}
-		check_value_statement(body, &mut env);
 	}
+	check_lr_value_statement(body, &mut local_bounded_identifiers);
 }
 
 // C11 Standard: 6.3.2.1 Lvalue, arrays, and function designators
 // Modern Compiler Design: 11.1.2.5 Kind checking
 // Dragon book: 2.8.3 Static checking: L-values and R-values
 // Essentials of Programming Languages: 3.2.2
-fn check_value(tu: &TranslationUnit) {
+fn check_lr_value<'a>(tu: &'a TranslationUnit<'a>) {
 	// The most simple possible check for denoted (i.e. having location) and expressed values (c.f. EoPL 3.2.2):
 	//   - any bounded identifier is denoted
 	//   - otherwise it isn't
 	let TranslationUnit(eds) = tu;
-	for ed in eds.iter() {
+	let mut bounded_identifiers = HashSet::new();
+	for ed in eds {
 		use ExternalDeclaration::*;
 		match ed {
-			FunctionDefinitionDecl(_) => {
-				let env = HashSet::new();
-				check_value_function(ed, &env);
+			FunctionDefinitionDecl(fd) => {
+				check_lr_value_function(fd, &bounded_identifiers);
 			}
 
-			_ => panic!("Unsupported external declaration"),
+			Decl(Declaration { declarator, .. }) => {
+				if let Some(Declarator { ident: Identifier(ident), .. }) = declarator {
+					bounded_identifiers.insert(ident);
+				}
+			}
 		}
 	}
 }
 
-pub fn check(tu: &TranslationUnit) {
+fn check_type<'a>(tu: &'a TranslationUnit<'a>) {
+	// TODO
+}
+
+pub fn check<'a>(tu: &'a TranslationUnit<'a>) {
 	check_binding(tu);
-	check_value(tu);
+	check_lr_value(tu);
+	check_type(tu);
 }
 
 static NEW_VAR_INDEX: AtomicUsize = AtomicUsize::new(0);

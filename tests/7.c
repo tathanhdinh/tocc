@@ -3,13 +3,15 @@ struct S {
     int y;
 };
 
-int foo(struct S s) {
-    return s.x + s.y;
+int foo(struct S *s) {
+    int a;
+    a = s->x + s->y;
+    return a;
 }
 
 int bar() {
     struct S s;
-    s.x = 10;
-    s.y = 15;
-    return foo(s);
+    s.x = 30;
+    s.y = 40;
+    return foo(&s);
 }

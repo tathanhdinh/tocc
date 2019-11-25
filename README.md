@@ -1,4 +1,4 @@
-tocc: A type-obfuscated C compiler
+ccc (Crapaud Cornu C): A type-blurred C compiler
 ==================================
 
 
