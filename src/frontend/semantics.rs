@@ -8,11 +8,11 @@ use std::{
 
 use super::syntax::{
 	BinaryOperator, BinaryOperatorExpression, Declaration, Declarator, Expression,
-	ExternalDeclaration, FunctionDeclarator, FunctionDefinition, Identifier, Statement, StructType,
-	TranslationUnit, TypeSpecifier, UnaryOperatorExpression,
+	ExternalDeclaration, FunctionDeclarator, FunctionDefinition, Identifier, IfStatement,
+	Statement, StructType, TranslationUnit, TypeSpecifier, UnaryOperatorExpression,
 };
 
-use crate::{error, unimpl};
+use crate::{checked_if_let, checked_match, checked_unwrap, error, unimpl};
 
 type NameBindingEnvironment<'a> = HashMap<&'a str, bool>;
 type TypeBindingEnvironment<'a> = HashMap<&'a str, bool>;
@@ -78,7 +78,7 @@ fn check_binding_at_expression(expr: &'_ Expression, env: &'_ NameBindingEnviron
 	}
 }
 
-fn check_binding_statement<'a>(
+fn check_binding_at_statement<'a>(
 	stmt: &'a Statement, name_env: &'_ mut NameBindingEnvironment<'a>,
 	type_env: &'_ mut TypeBindingEnvironment<'a>,
 ) {
@@ -96,7 +96,15 @@ fn check_binding_statement<'a>(
 			}
 
 			for stmt in stmts {
-				check_binding_statement(stmt, &mut local_name_env, &mut local_type_env);
+				check_binding_at_statement(stmt, &mut local_name_env, &mut local_type_env);
+			}
+		}
+
+		IfStmt(IfStatement { condition, then_statement, else_statement }) => {
+			check_binding_at_expression(condition, name_env);
+			check_binding_at_statement(then_statement.as_ref(), name_env, type_env);
+			if let Some(stmt) = else_statement {
+				check_binding_at_statement(stmt.as_ref(), name_env, type_env);
 			}
 		}
 
@@ -152,7 +160,7 @@ fn check_binding(tu: &'_ TranslationUnit) {
 						check_binding_declaration(decl, &mut name_env, &mut type_env);
 					}
 				}
-				check_binding_statement(body, &mut name_env, &mut type_env)
+				check_binding_at_statement(body, &mut name_env, &mut type_env)
 			}
 
 			Decl(decl) => {
@@ -218,12 +226,9 @@ fn check_lr_value_function<'a>(
 
 	let mut local_bounded_identifiers = bounded_identifiers.clone();
 	for Declaration { declarator, .. } in parameters {
-		if let Some(Declarator { ident: Identifier(pname), .. }) = declarator {
+		checked_if_let!(Some(Declarator { ident: Identifier(pname), .. }), declarator, {
 			local_bounded_identifiers.insert(pname);
-		} else {
-			// checked in syntax analysis
-			unsafe { unreachable_unchecked() }
-		}
+		});
 	}
 	check_lr_value_statement(body, &mut local_bounded_identifiers);
 }
@@ -232,14 +237,14 @@ fn check_lr_value_function<'a>(
 // Modern Compiler Design: 11.1.2.5 Kind checking
 // Dragon book: 2.8.3 Static checking: L-values and R-values
 // Essentials of Programming Languages: 3.2.2
-fn check_lr_value<'a>(tu: &'a TranslationUnit<'a>) {
+fn check_lr_value<'a>(TranslationUnit(eds): &'a TranslationUnit<'a>) {
+	use ExternalDeclaration::*;
+
 	// The most simple possible check for denoted (i.e. having location) and expressed values (c.f. EoPL 3.2.2):
 	//   - any bounded identifier is denoted
 	//   - otherwise it isn't
-	let TranslationUnit(eds) = tu;
 	let mut bounded_identifiers = HashSet::new();
 	for ed in eds {
-		use ExternalDeclaration::*;
 		match ed {
 			FunctionDefinitionDecl(fd) => {
 				check_lr_value_function(fd, &bounded_identifiers);
@@ -254,8 +259,16 @@ fn check_lr_value<'a>(tu: &'a TranslationUnit<'a>) {
 	}
 }
 
-fn check_type<'a>(tu: &'a TranslationUnit<'a>) {
-	// TODO
+fn check_type<'a>(TranslationUnit(eds): &'a TranslationUnit<'a>) {
+	use ExternalDeclaration::*;
+
+	for ed in eds {
+		match ed {
+			FunctionDefinitionDecl(_) => {}
+
+			Decl(_) => {}
+		}
+	}
 }
 
 pub fn check<'a>(tu: &'a TranslationUnit<'a>) {

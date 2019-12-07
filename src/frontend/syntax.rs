@@ -23,6 +23,10 @@ pub enum BinaryOperator {
 	Addition,
 	Subtraction,
 	Assignment,
+	Less,
+	LessOrEqual,
+	Greater,
+	GreaterOrEqual,
 }
 
 #[derive(Clone)]
@@ -92,6 +96,13 @@ pub struct Declaration<'a> {
 }
 
 #[derive(Clone)]
+pub struct IfStatement<'a> {
+	pub condition: Expression<'a>,
+	pub then_statement: Box<Statement<'a>>,
+	pub else_statement: Option<Box<Statement<'a>>>,
+}
+
+#[derive(Clone)]
 pub enum Statement<'a> {
 	CompoundStmt(Vec<Statement<'a>>),
 
@@ -103,6 +114,8 @@ pub enum Statement<'a> {
 
 	// e.g. i = 10; or just ; (i.e. null statement)
 	ExpressionStmt(Option<Expression<'a>>),
+
+	IfStmt(IfStatement<'a>),
 }
 
 #[derive(Clone)]
@@ -201,6 +214,35 @@ peg::parser! {grammar parser() for str {
 				op: BinaryOperator::Assignment,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
+			})
+		}
+		--
+		a:(@) blank()* "<" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				op: BinaryOperator::Less,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
+		a:(@) blank()* "<=" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				op: BinaryOperator::LessOrEqual,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
+		a:(@) blank()* ">" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				op: BinaryOperator::Greater,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
+		a:(@) blank()* ">=" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				op: BinaryOperator::GreaterOrEqual,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
 			})
 		}
 		--
@@ -338,8 +380,26 @@ peg::parser! {grammar parser() for str {
 			Statement::CompoundStmt(ss)
 		}
 
+	rule if_stmt() -> Statement<'input>
+		= blank()+ s:if_stmt() { s }
+		/ "if" blank()* "(" e:expression() blank()* ")" ts:statement() blank()* "else" es:statement() {
+			Statement::IfStmt(IfStatement {
+				condition: e,
+				then_statement: Box::new(ts),
+				else_statement: Some(Box::new(es)),
+			})
+		}
+		/ "if" blank()* "(" e:expression() blank()* ")" ts:statement() blank()* {
+			Statement::IfStmt(IfStatement {
+				condition: e,
+				then_statement: Box::new(ts),
+				else_statement: None,
+			})
+		}
+
 	rule statement() -> Statement<'input>
 		= compound_stmt()
+		/ if_stmt()
 		/ return_stmt()
 		/ declaration_stmt()
 		/ expression_stmt()

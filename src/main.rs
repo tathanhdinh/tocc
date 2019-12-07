@@ -2,6 +2,7 @@ use std::{fs, path::PathBuf};
 
 use zydis::{
 	AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer,
+	Signedness,
 };
 
 use structopt::StructOpt;
@@ -36,9 +37,19 @@ fn main() {
 
 		let asm_formatter = {
 			let mut fm =
-				Formatter::new(FormatterStyle::INTEL).expect("Failed to create assembly formatter");
+				Formatter::new(FormatterStyle::INTEL).expect("failed to create assembly formatter");
 			fm.set_property(FormatterProperty::HexUppercase(false))
-				.expect("Failed to set assembly formatter property");
+				.expect("failed to disable hex uppercase");
+			fm.set_property(FormatterProperty::DisplacementSignedness(Signedness::SIGNED))
+				.expect("failed to set displacement signedness");
+			fm.set_property(FormatterProperty::ImmediateSignedness(Signedness::SIGNED))
+				.expect("failed to set immediate signedness");
+			fm.set_property(FormatterProperty::ForceRelativeRiprel(true))
+				.expect("failed to force relative RIP");
+			fm.set_property(FormatterProperty::AddressSignedness(Signedness::SIGNED))
+				.expect("failed to set address signedness");
+			fm.set_property(FormatterProperty::ForceRelativeBranches(true))
+				.expect("failed to set relative branches");
 			fm
 		};
 
@@ -64,7 +75,7 @@ mod tests {
 	use super::*;
 	use std::{mem, path::Path};
 
-	// tests 0, 1, 2, 3, 4
+	// tests 0, 1, 2, 3, 4, 6, 7, 8
 	fn compile_and_run_void_to_int(file: impl AsRef<Path>, fname: &str) -> i32 {
 		let src = fs::read_to_string(file).expect("failed to read source code file");
 		let tu = frontend::syntax::parse(src.as_str());
@@ -128,5 +139,10 @@ mod tests {
 	#[test]
 	fn compile_7() {
 		assert_eq!(compile_and_run_void_to_int("tests/7.c", "bar"), 70);
+	}
+
+	#[test]
+	fn compile_8() {
+		assert_eq!(compile_and_run_void_to_int("tests/8.c", "bar"), 3);
 	}
 }

@@ -1,5 +1,7 @@
-ccc (Crapaud Cornu C): A type-blurred C compiler
+ccc: crapaud cornu compiler
 ==================================
+
+ccc is a type-blurred C compiler
 
 
 ### References

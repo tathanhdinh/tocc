@@ -11,13 +11,13 @@ mod translation;
 
 use crate::frontend::syntax::TranslationUnit;
 use support::{
-	BackedModule, FunctionIdentifier, NameBindingEnvironment, SimpleTypedIdentifier,
+	ConcreteModule, FunctionIdentifier, NameBindingEnvironment, SimpleTypedIdentifier,
 	TypeBindingEnvironment,
 };
 
 // an abstract machine that runs Cranelift IR
 pub struct AbstractMachine<'s> {
-	module: BackedModule,
+	module: ConcreteModule,
 	name_env: NameBindingEnvironment<'s>,
 	compiled_funcs: Vec<(Function, FuncId, usize)>,
 }
@@ -25,7 +25,7 @@ pub struct AbstractMachine<'s> {
 impl<'s> AbstractMachine<'s> {
 	pub fn new(tu: &'s TranslationUnit) -> Self {
 		let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
-		let mut module = BackedModule::new(builder);
+		let mut module = ConcreteModule::new(builder);
 		let mut name_env = NameBindingEnvironment::new();
 		let mut type_env = TypeBindingEnvironment::new();
 		let compiled_funcs = translation::compile(tu, &mut module, &mut name_env, &mut type_env);
