@@ -22,11 +22,12 @@ pub enum BinaryOperator {
 	Division,
 	Addition,
 	Subtraction,
-	Assignment,
 	Less,
 	LessOrEqual,
 	Greater,
 	GreaterOrEqual,
+	Equal,
+	Assignment,
 }
 
 #[derive(Clone)]
@@ -241,6 +242,13 @@ peg::parser! {grammar parser() for str {
 		a:(@) blank()* ">=" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
 				op: BinaryOperator::GreaterOrEqual,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
+		a:(@) blank()* "==" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				op: BinaryOperator::Equal,
 				lhs: Box::new(a),
 				rhs: Box::new(b)
 			})

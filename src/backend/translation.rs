@@ -121,7 +121,14 @@ fn evaluate_in_function_expression<'clif, 'tcx>(
 				Division => fb.ins().sdiv(lhs, rhs),
 				Addition => fb.ins().iadd(lhs, rhs),
 				Subtraction => fb.ins().isub(lhs, rhs),
-				_ => unsafe {
+
+				Less => fb.ins().icmp(IntCC::SignedLessThan, lhs, rhs),
+				LessOrEqual => fb.ins().icmp(IntCC::SignedLessThanOrEqual, lhs, rhs),
+				Greater => fb.ins().icmp(IntCC::SignedGreaterThan, lhs, rhs),
+				GreaterOrEqual => fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs),
+				Equal => fb.ins().icmp(IntCC::Equal, lhs, rhs),
+
+				Assignment => unsafe {
 					// TODO: check in semantics analysis
 					unreachable_unchecked()
 				},

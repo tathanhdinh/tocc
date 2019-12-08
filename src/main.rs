@@ -145,4 +145,9 @@ mod tests {
 	fn compile_8() {
 		assert_eq!(compile_and_run_void_to_int("tests/8.c", "bar"), 3);
 	}
+
+	#[test]
+	fn compile_9() {
+		assert_eq!(compile_and_run_void_to_int("tests/9.c", "bar"), 11);
+	}
 }
