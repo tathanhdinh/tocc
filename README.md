@@ -1,4 +1,4 @@
-ccc: crapaud cornu compiler
+ccc: coyote C compiler
 ==================================
 
 ccc is a type-blurred C compiler

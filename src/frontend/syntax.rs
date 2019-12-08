@@ -1,22 +1,26 @@
 // syntax analysis
 use std::hint::unreachable_unchecked;
 
+use crate::error;
+
 const KEYWORDS: &'static [&'static str] =
-	&["if", "else", "while", "do", "char", "short", "int", "long", "return", "struct"];
+	&["if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct"];
 
 #[derive(Clone)]
 pub enum UnaryOperator {
 	Negation,
+	PostIncrement,
+	PreIncrement,
 	Address,
 }
 
 #[derive(Clone)]
 pub struct UnaryOperatorExpression<'a> {
-	pub op: UnaryOperator,
-	pub rhs: Box<Expression<'a>>,
+	pub operator: UnaryOperator,
+	pub operand: Box<Expression<'a>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum BinaryOperator {
 	Multiplication,
 	Division,
@@ -37,7 +41,19 @@ pub enum MemberOperator {
 }
 
 #[derive(Clone)]
-pub struct Integer(pub i32);
+pub struct Integer(pub i64);
+
+impl Into<i64> for &'_ Integer {
+	fn into(self) -> i64 {
+		self.0
+	}
+}
+
+impl Into<i64> for Integer {
+	fn into(self) -> i64 {
+		self.0
+	}
+}
 
 #[derive(Clone)]
 pub enum Constant {
@@ -46,7 +62,7 @@ pub enum Constant {
 
 #[derive(Clone)]
 pub struct BinaryOperatorExpression<'a> {
-	pub op: BinaryOperator,
+	pub operator: BinaryOperator,
 	pub lhs: Box<Expression<'a>>,
 	pub rhs: Box<Expression<'a>>,
 }
@@ -75,7 +91,7 @@ pub enum Expression<'a> {
 	CallExpr(CallExpression<'a>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum DerivedDeclarator {
 	Pointer,
 }
@@ -103,6 +119,16 @@ pub struct IfStatement<'a> {
 	pub else_statement: Option<Box<Statement<'a>>>,
 }
 
+// C11 Standard 6.8.5.3 The for statement
+// Simplification: initializer is expression
+#[derive(Clone)]
+pub struct ForStatement<'a> {
+	pub initializer: Option<Expression<'a>>,
+	pub condition: Expression<'a>,
+	pub step: Option<Expression<'a>>,
+	pub statement: Box<Statement<'a>>,
+}
+
 #[derive(Clone)]
 pub enum Statement<'a> {
 	CompoundStmt(Vec<Statement<'a>>),
@@ -117,9 +143,11 @@ pub enum Statement<'a> {
 	ExpressionStmt(Option<Expression<'a>>),
 
 	IfStmt(IfStatement<'a>),
+
+	ForStmt(ForStatement<'a>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Identifier<'a>(pub &'a str);
 
 #[derive(Clone)]
@@ -164,7 +192,7 @@ pub enum ExternalDeclaration<'a> {
 pub struct TranslationUnit<'a>(pub Vec<ExternalDeclaration<'a>>);
 
 //  DOI 10.1145/1942793.1942796
-//  https://github.com/vickenty/lang-c
+//  but mostly https://github.com/vickenty/lang-c
 peg::parser! {grammar parser() for str {
 	rule blank() = [' ' | '\t' | '\n']
 	rule digit() = ['0'..='9']
@@ -188,7 +216,14 @@ peg::parser! {grammar parser() for str {
 			let ds: Vec<_> = dss.iter().map(|s| {
 				use Statement::*;
 				match s {
-					DeclarationStmt(d) => d.clone(),
+					DeclarationStmt(d) => {
+						let Declaration { declarator, .. } = d;
+						if declarator.is_none() {
+							error!("incomplelete struct field declaration")
+						} else {
+							d.clone()
+						}
+					}
 					_ => unsafe { unreachable_unchecked() }
 			}}).collect();
 			TypeSpecifier::StructTy(StructType {
@@ -204,7 +239,7 @@ peg::parser! {grammar parser() for str {
 		}
 
 	rule integer_literal() -> Constant
-		= i:$(digit()+) {
+		= i:$("_"? blank()* digit()+) {
 			Constant::IntegerConst(Integer(i.parse().unwrap()))
 		}
 
@@ -212,7 +247,7 @@ peg::parser! {grammar parser() for str {
 	rule expression() -> Expression<'input> = precedence!{
 		a:@ blank()* "=" blank()* b:(@) {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Assignment,
+				operator: BinaryOperator::Assignment,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
@@ -220,35 +255,35 @@ peg::parser! {grammar parser() for str {
 		--
 		a:(@) blank()* "<" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Less,
+				operator: BinaryOperator::Less,
 				lhs: Box::new(a),
 				rhs: Box::new(b)
 			})
 		}
 		a:(@) blank()* "<=" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::LessOrEqual,
+				operator: BinaryOperator::LessOrEqual,
 				lhs: Box::new(a),
 				rhs: Box::new(b)
 			})
 		}
 		a:(@) blank()* ">" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Greater,
+				operator: BinaryOperator::Greater,
 				lhs: Box::new(a),
 				rhs: Box::new(b)
 			})
 		}
 		a:(@) blank()* ">=" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::GreaterOrEqual,
+				operator: BinaryOperator::GreaterOrEqual,
 				lhs: Box::new(a),
 				rhs: Box::new(b)
 			})
 		}
 		a:(@) blank()* "==" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Equal,
+				operator: BinaryOperator::Equal,
 				lhs: Box::new(a),
 				rhs: Box::new(b)
 			})
@@ -256,14 +291,14 @@ peg::parser! {grammar parser() for str {
 		--
 		a:(@) blank()* "+" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Addition,
+				operator: BinaryOperator::Addition,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
 		}
 		a:(@) blank()* "-" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Subtraction,
+				operator: BinaryOperator::Subtraction,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
@@ -271,14 +306,14 @@ peg::parser! {grammar parser() for str {
 		--
 		a:(@) blank()* "*" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Multiplication,
+				operator: BinaryOperator::Multiplication,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
 		}
 		a:(@) blank()* "/" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
-				op: BinaryOperator::Division,
+				operator: BinaryOperator::Division,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})
@@ -293,14 +328,27 @@ peg::parser! {grammar parser() for str {
 		--
 		"-" blank()* a:@ {
 			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
-				op: UnaryOperator::Negation,
-				rhs: Box::new(a),
+				operator: UnaryOperator::Negation,
+				operand: Box::new(a),
 			})
 		}
 		"&" blank()* a:@ {
 			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
-				op: UnaryOperator::Address,
-				rhs: Box::new(a),
+				operator: UnaryOperator::Address,
+				operand: Box::new(a),
+			})
+		}
+		--
+		a:identifier() "++" {
+			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
+				operator: UnaryOperator::PostIncrement,
+				operand: Box::new(Expression::IdentifierExpr(a)),
+			})
+		}
+		"++" a:identifier() {
+			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
+				operator: UnaryOperator::PreIncrement,
+				operand: Box::new(Expression::IdentifierExpr(a)),
 			})
 		}
 		--
@@ -405,9 +453,21 @@ peg::parser! {grammar parser() for str {
 			})
 		}
 
+	rule for_stmt() -> Statement<'input>
+		= blank()+ s:for_stmt() { s }
+		/ "for" blank()* "(" i:expression()? ";" c:expression() ";" s:expression()? blank()* ")" st:statement() {
+			Statement::ForStmt(ForStatement {
+				initializer: i,
+				condition: c,
+				step: s,
+				statement: Box::new(st),
+			})
+		}
+
 	rule statement() -> Statement<'input>
 		= compound_stmt()
 		/ if_stmt()
+		/ for_stmt()
 		/ return_stmt()
 		/ declaration_stmt()
 		/ expression_stmt()

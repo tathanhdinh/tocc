@@ -18,16 +18,21 @@ pub struct AggregateType<'a> {
 }
 
 impl AggregateType<'_> {
-	pub fn offset(&self, field: &str) -> Option<usize> {
+	pub fn field_offset(&self, field_name: &str) -> Option<usize> {
 		let mut os = 0usize;
 		for (fname, fty) in &self.fields {
-			if *fname == field {
+			if *fname == field_name {
 				return Some(os);
 			} else {
 				os += fty.bytes() as usize;
 			}
 		}
 		None
+	}
+
+	pub fn field_type(&self, field_name: &str) -> Option<Type> {
+		let (_, fty) = self.fields.iter().find(|(fname, _)| *fname == field_name)?;
+		Some(*fty)
 	}
 
 	pub fn bytes(&self) -> usize {
