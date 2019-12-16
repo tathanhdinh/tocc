@@ -239,7 +239,11 @@ fn translate_in_function_expression<'clif, 'tcx>(
 				}
 				Equal => func_builder.ins().icmp(IntCC::Equal, lhs, rhs),
 
-				Assignment => unsafe {
+				Assignment
+				| AdditionAssignment
+				| SubtractionAssignment
+				| MultiplicationAssignment
+				| DivisionAssignment => unsafe {
 					// because an assignment expression is of unit type
 					unreachable_unchecked()
 				},
@@ -517,7 +521,11 @@ fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 
 	match operator {
 		// assignment operator, i.e. =
-		Assignment => {
+		Assignment
+		| AdditionAssignment
+		| SubtractionAssignment
+		| MultiplicationAssignment
+		| DivisionAssignment => {
 			match lhs.as_ref() {
 				// e.g. x = 10
 				IdentifierExpr(Identifier(var_name)) => {
@@ -535,7 +543,24 @@ fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 								type_env,
 							);
 							let rhs_val = type_cast_value(rhs_val, *ty, func_builder);
-							func_builder.def_var(*ident, rhs_val)
+
+							let lhs_val = func_builder.use_var(*ident);
+							let new_lhs_val = match operator {
+								Assignment => rhs_val,
+								AdditionAssignment => func_builder.ins().iadd(lhs_val, rhs_val),
+								SubtractionAssignment => func_builder.ins().isub(lhs_val, rhs_val),
+								MultiplicationAssignment => func_builder.ins().imul(lhs_val, rhs_val),
+								DivisionAssignment => func_builder.ins().sdiv(lhs_val, rhs_val),
+								_ => unsafe { unreachable_unchecked() }
+							};
+							func_builder.def_var(*ident, new_lhs_val);
+
+							// match operator {
+							// 	Assignment => func_builder.def_var(*ident, rhs_val),
+							// 	AdditionAssignment => {
+							// 		let new_val =
+							// 	}
+							// }
 						}
 					);
 				}

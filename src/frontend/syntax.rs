@@ -32,6 +32,10 @@ pub enum BinaryOperator {
 	GreaterOrEqual,
 	Equal,
 	Assignment,
+	AdditionAssignment,
+	SubtractionAssignment,
+	MultiplicationAssignment,
+	DivisionAssignment,
 }
 
 #[derive(Clone)]
@@ -248,6 +252,34 @@ peg::parser! {grammar parser() for str {
 		a:@ blank()* "=" blank()* b:(@) {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
 				operator: BinaryOperator::Assignment,
+				lhs: Box::new(a),
+				rhs: Box::new(b),
+			})
+		}
+		a:@ blank()* "+=" blank()* b:(@) {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::AdditionAssignment,
+				lhs: Box::new(a),
+				rhs: Box::new(b),
+			})
+		}
+		a:@ blank()* "-=" blank()* b:(@) {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::SubtractionAssignment,
+				lhs: Box::new(a),
+				rhs: Box::new(b),
+			})
+		}
+		a:@ blank()* "*=" blank()* b:(@) {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::MultiplicationAssignment,
+				lhs: Box::new(a),
+				rhs: Box::new(b),
+			})
+		}
+		a:@ blank()* "/=" blank()* b:(@) {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::DivisionAssignment,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
 			})

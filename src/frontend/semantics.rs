@@ -370,12 +370,15 @@ impl<'a> SimpleType<'a> {
 						PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
 					}
 
-					Assignment => {
-						// no type promotion, sorry
+					Assignment
+					| AdditionAssignment
+					| SubtractionAssignment
+					| MultiplicationAssignment
+					| DivisionAssignment => {
 						if lhs_ty == rhs_ty {
 							UnitTy
 						} else {
-							error!("lhs and rhs are not the same type")
+							error!("lhs and rhs are not of the same type")
 						}
 					}
 				}
@@ -757,32 +760,38 @@ pub fn check_statement<'a>(
 				// check also value qualifier
 				match expr {
 					BinaryOperatorExpr(BinaryOperatorExpression { operator, lhs, .. }) => {
-						if *operator == Assignment {
-							match lhs.as_ref() {
+						match operator {
+							Assignment
+							| AdditionAssignment
+							| SubtractionAssignment
+							| MultiplicationAssignment
+							| DivisionAssignment => match lhs.as_ref() {
 								IdentifierExpr(lhs_ident) => {
 									let QualifiedSimpleType { qualifier, .. } =
 										bind_env.get(lhs_ident.into());
 									if *qualifier == Expressed {
-										error!("lhs of an assignment must be a denoted value")
+										error!("lhs must be a denoted value")
 									}
 								}
 
-								MemberExpr(MemberExpression { expression, .. }) => match expression
-									.as_ref()
-								{
-									IdentifierExpr(lhs_ident) => {
-										let QualifiedSimpleType { qualifier, .. } =
-											bind_env.get(lhs_ident.into());
-										if *qualifier == Expressed {
-											error!("lhs of an assignment must be a denoted value")
+								MemberExpr(MemberExpression { expression, .. }) => {
+									match expression.as_ref() {
+										IdentifierExpr(lhs_ident) => {
+											let QualifiedSimpleType { qualifier, .. } =
+												bind_env.get(lhs_ident.into());
+											if *qualifier == Expressed {
+												error!("lhs must be a denoted value")
+											}
 										}
+
+										_ => error!("lhs must be a denoted value"),
 									}
+								}
 
-									_ => error!("lhs of an assignment must be a denoted value"),
-								},
+								_ => unimpl!("unsupported lhs"),
+							},
 
-								_ => error!("lhs of an assignment must be a denoted value"),
-							}
+							_ => unsafe { unreachable_unchecked() },
 						}
 					}
 

@@ -75,7 +75,7 @@ mod tests {
 	use super::*;
 	use std::{mem, path::Path};
 
-	// tests 0, 1, 2, 3, 4, 6, 7, 8
+	// tests 0, 1, 2, 3, 4, 6, 7, 8, 9, 10
 	fn compile_and_run_void_to_int(file: impl AsRef<Path>, fname: &str) -> i32 {
 		let src = fs::read_to_string(file).expect("failed to read source code file");
 		let tu = frontend::syntax::parse(src.as_str());
@@ -154,5 +154,10 @@ mod tests {
 	#[test]
 	fn compile_10() {
 		assert_eq!(compile_and_run_void_to_int("tests/10.c", "bar"), 16);
+	}
+
+	#[test]
+	fn compile_11() {
+		assert_eq!(compile_and_run_void_to_int("tests/11.c", "foo"), 14);
 	}
 }
