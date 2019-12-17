@@ -399,7 +399,7 @@ impl<'a> SimpleType<'a> {
 					let fields: Vec<_> = declarations
 						.iter()
 						.map(|decl| {
-							let (fname, fty) = Self::parse_declaration(decl, env);
+							let (fname, fty) = Self::parse_declaration(decl, env, None);
 							(checked_unwrap!(fname), fty)
 						})
 						.collect();
@@ -414,18 +414,32 @@ impl<'a> SimpleType<'a> {
 	}
 
 	pub fn parse_declaration(
-		decl: &'_ Declaration<'a>, env: &'_ mut TypingEnvironment<'a>,
+		decl: &'_ Declaration<'a>, type_env: &'_ mut TypingEnvironment<'a>,
+		bind_env: Option<&'_ BindingEnvironment>,
 	) -> (Option<&'a str>, Self) {
 		let Declaration { specifier, declarator } = decl;
-		let base_ty = Self::from_type_specifier(&specifier, env);
-		if let Some(Declarator { derived, ident: Identifier(name) }) = declarator.as_ref() {
-			if let Some(derived) = derived {
+		let base_ty = Self::from_type_specifier(&specifier, type_env);
+		if let Some(Declarator { derived, ident: Identifier(name), initializer }) =
+			declarator.as_ref()
+		{
+			let ident_ty = if let Some(derived) = derived {
 				match derived {
-					DerivedDeclarator::Pointer => (Some(*name), Self::PointerTy(Box::new(base_ty))),
+					DerivedDeclarator::Pointer => Self::PointerTy(Box::new(base_ty)),
 				}
 			} else {
-				(Some(*name), base_ty)
+				base_ty
+			};
+
+			if let Some(bind_env) = bind_env {
+				if let Some(initializer) = initializer.as_ref() {
+					let init_ty = SimpleType::synthesize_expression(initializer, bind_env);
+					if init_ty != ident_ty {
+						error!("initializer and variable are not the same type")
+					}
+				}
 			}
+
+			(Some(*name), ident_ty)
 		} else {
 			(None, base_ty)
 		}
@@ -599,6 +613,14 @@ fn check_binding_at_statement<'a>(
 		}
 
 		ForStmt(_) => {
+			// TODO
+		}
+
+		WhileStmt(_) => {
+			// TODO
+		}
+
+		DoWhileStmt(_) => {
 			// TODO
 		}
 	}
@@ -818,7 +840,8 @@ pub fn check_statement<'a>(
 		DeclarationStmt(declaration) => {
 			let Declaration { specifier, declarator } = declaration;
 			if declarator.is_some() {
-				let (ident_name, ident_ty) = SimpleType::parse_declaration(declaration, type_env);
+				let (ident_name, ident_ty) =
+					SimpleType::parse_declaration(declaration, type_env, Some(bind_env));
 				if let Some(ident_name) = ident_name {
 					bind_env.bind(
 						ident_name.into(),
@@ -841,6 +864,10 @@ pub fn check_statement<'a>(
 		}
 
 		ForStmt(_) => {}
+
+		WhileStmt(_) => {}
+
+		DoWhileStmt(_) => {}
 
 		CompoundStmt(stmts) => {
 			let mut bind_env = bind_env.inherit();
@@ -873,7 +900,7 @@ pub fn check<'a>(tu: &'a TranslationUnit<'a>) {
 				let return_ty = SimpleType::from_type_specifier(specifier, &mut type_env);
 				let mut param_ty = Vec::new();
 				for param in parameters {
-					let (pname, pty) = SimpleType::parse_declaration(param, &mut type_env);
+					let (pname, pty) = SimpleType::parse_declaration(param, &mut type_env, None);
 					param_ty.push(pty.clone());
 
 					bind_env.bind(
@@ -899,7 +926,7 @@ pub fn check<'a>(tu: &'a TranslationUnit<'a>) {
 				let Declaration { specifier, declarator } = declaration;
 				if declarator.is_some() {
 					let (ident_name, ident_ty) =
-						SimpleType::parse_declaration(declaration, &mut type_env);
+						SimpleType::parse_declaration(declaration, &mut type_env, Some(&bind_env));
 					if let Some(ident_name) = ident_name {
 						bind_env.bind(
 							ident_name.into(),

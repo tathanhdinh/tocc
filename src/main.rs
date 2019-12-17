@@ -160,4 +160,14 @@ mod tests {
 	fn compile_11() {
 		assert_eq!(compile_and_run_void_to_int("tests/11.c", "foo"), 14);
 	}
+
+	#[test]
+	fn compile_12() {
+		assert_eq!(compile_and_run_void_to_int("tests/12.c", "foo"), 61);
+	}
+
+	#[test]
+	fn compile_13() {
+		assert_eq!(compile_and_run_void_to_int("tests/13.c", "foo"), 18);
+	}
 }

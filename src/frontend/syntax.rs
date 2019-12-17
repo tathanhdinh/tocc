@@ -106,6 +106,7 @@ pub enum DerivedDeclarator {
 pub struct Declarator<'a> {
 	pub ident: Identifier<'a>,
 	pub derived: Option<DerivedDeclarator>,
+	pub initializer: Option<Expression<'a>>,
 }
 
 // Simplified declaration
@@ -133,6 +134,19 @@ pub struct ForStatement<'a> {
 	pub statement: Box<Statement<'a>>,
 }
 
+// C11 Standard 6.8.5.1 The while statement
+#[derive(Clone)]
+pub struct WhileStatement<'a> {
+	pub condition: Expression<'a>,
+	pub statement: Box<Statement<'a>>,
+}
+
+#[derive(Clone)]
+pub struct DoWhileStatement<'a> {
+	pub condition: Expression<'a>,
+	pub statement: Box<Statement<'a>>,
+}
+
 #[derive(Clone)]
 pub enum Statement<'a> {
 	CompoundStmt(Vec<Statement<'a>>),
@@ -149,6 +163,10 @@ pub enum Statement<'a> {
 	IfStmt(IfStatement<'a>),
 
 	ForStmt(ForStatement<'a>),
+
+	WhileStmt(WhileStatement<'a>),
+
+	DoWhileStmt(DoWhileStatement<'a>),
 }
 
 #[derive(Clone, Copy)]
@@ -414,10 +432,18 @@ peg::parser! {grammar parser() for str {
 		}
 
 	rule declarator() -> Declarator<'input>
-		= d:derived_declarator()? blank()* i:identifier() {
+		= d:derived_declarator()? blank()* i:identifier() blank()* "=" blank()* e:expression() {
 			Declarator {
 				ident: i,
 				derived: d,
+				initializer: Some(e),
+			}
+		}
+		/ d:derived_declarator()? blank()* i:identifier() {
+			Declarator {
+				ident: i,
+				derived: d,
+				initializer: None,
 			}
 		}
 
@@ -438,9 +464,7 @@ peg::parser! {grammar parser() for str {
 					})
 				}
 
-				_ => {
-					Err("declarator is obliged for primitive types")
-				}
+				_ => Err("declarator is obliged for primitive types")
 			}
 		}
 
@@ -496,9 +520,35 @@ peg::parser! {grammar parser() for str {
 			})
 		}
 
+	rule while_stmt() -> Statement<'input>
+		= blank()+ s:while_stmt() { s }
+		/ "while" blank()* "(" c:expression() blank()* ")" blank()* st:statement() {
+			Statement::WhileStmt(WhileStatement {
+				condition: c,
+				statement: Box::new(st),
+			})
+		}
+
+	rule do_while_stmt() -> Statement<'input>
+		= blank()+ s:do_while_stmt() { s }
+		/ "do" blank()* st:compound_stmt() blank()* "while" blank()* "(" c:expression() blank()* ")" blank()* ";" {
+			Statement::DoWhileStmt(DoWhileStatement {
+				condition:c,
+				statement: Box::new(st)
+			})
+		}
+		/ "do" blank()+ st:statement() blank()* "while" blank()* "(" c:expression() blank()* ")" blank()* ";" {
+			Statement::DoWhileStmt(DoWhileStatement {
+				condition:c,
+				statement: Box::new(st)
+			})
+		}
+
 	rule statement() -> Statement<'input>
 		= compound_stmt()
 		/ if_stmt()
+		/ do_while_stmt()
+		/ while_stmt()
 		/ for_stmt()
 		/ return_stmt()
 		/ declaration_stmt()
@@ -506,8 +556,11 @@ peg::parser! {grammar parser() for str {
 
 	rule function_declarator() -> FunctionDeclarator<'input>
 		= i:identifier() blank()* "(" blank()* ds:declaration() ** "," blank()* ")" {?
-			if ds.iter().any(|Declaration { declarator, .. }| declarator.is_none()) {
-				Err("parameter name not found")
+			if ds.iter().any(|Declaration { declarator, .. }| declarator.is_none() || {
+				let Declarator { initializer, .. } = declarator.clone().unwrap();
+				initializer.is_some()
+			}) {
+				Err("parameter name not found (or found but with initializer)")
 			} else {
 				Ok(FunctionDeclarator {
 					identifier: i,

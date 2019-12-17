@@ -13,10 +13,10 @@ use crate::{
 	checked_if_let, checked_match, checked_unwrap, error,
 	frontend::syntax::{
 		BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration,
-		Declarator, DerivedDeclarator, Expression, ExternalDeclaration, ForStatement,
-		FunctionDeclarator, FunctionDefinition, Identifier, IfStatement, Integer, MemberExpression,
-		MemberOperator, Statement, StructType, TranslationUnit, TypeSpecifier, UnaryOperator,
-		UnaryOperatorExpression,
+		Declarator, DerivedDeclarator, DoWhileStatement, Expression, ExternalDeclaration,
+		ForStatement, FunctionDeclarator, FunctionDefinition, Identifier, IfStatement, Integer,
+		MemberExpression, MemberOperator, Statement, StructType, TranslationUnit, TypeSpecifier,
+		UnaryOperator, UnaryOperatorExpression, WhileStatement,
 	},
 	unimpl,
 };
@@ -38,6 +38,42 @@ fn type_cast_value<'clif>(val: Value, ty: Type, func_builder: &'clif mut Functio
 		func_builder.ins().sextend(ty, val)
 	} else {
 		val
+	}
+}
+
+fn evaluate_constant_arithmetic_expression(expr: &'_ Expression) -> Option<i64> {
+	use Expression::*;
+
+	match expr {
+		ConstantExpr(Constant::IntegerConst(i)) => Some(i.into()),
+
+		UnaryOperatorExpr(UnaryOperatorExpression { operator, operand }) => {
+			use UnaryOperator::*;
+
+			let val = evaluate_constant_arithmetic_expression(operand.as_ref())?;
+			match operator {
+				Negation => Some(-val),
+				PreIncrement => Some(val + 1),
+				PostIncrement => Some(val),
+				Address => None,
+			}
+		}
+
+		BinaryOperatorExpr(BinaryOperatorExpression { operator, lhs, rhs }) => {
+			use BinaryOperator::*;
+
+			let lval = evaluate_constant_arithmetic_expression(lhs.as_ref())?;
+			let rval = evaluate_constant_arithmetic_expression(rhs.as_ref())?;
+			match operator {
+				Multiplication => Some(lval * rval),
+				Division => Some(lval / rval),
+				Addition => Some(lval + rval),
+				Subtraction => Some(lval - rval),
+				_ => None,
+			}
+		}
+
+		_ => None,
 	}
 }
 
@@ -204,14 +240,20 @@ fn translate_in_function_expression<'clif, 'tcx>(
 						type_env,
 					);
 					let lhs_ty = func_builder.func.dfg.value_type(lhs);
-					let rhs = translate_in_function_expression(
-						rhs,
-						Some(lhs_ty),
-						func_builder,
-						bm,
-						name_env,
-						type_env,
-					);
+					let rhs = if let Some(const_val) = evaluate_constant_arithmetic_expression(rhs)
+					{
+						func_builder.ins().iconst(lhs_ty, const_val)
+					} else {
+						translate_in_function_expression(
+							rhs,
+							Some(lhs_ty),
+							func_builder,
+							bm,
+							name_env,
+							type_env,
+						)
+					};
+					// let rhs = translate_in_function_expression(rhs, Some(lhs_ty), func_builder, bm, name_env, type_env);
 					(lhs, rhs)
 				}
 			};
@@ -414,15 +456,16 @@ fn translate_in_function_declaration<'clif, 'tcx>(
 
 	match specifier {
 		CharTy | ShortTy | IntTy | LongTy => {
-			let Declarator { ident: Identifier(var_name), derived } =
+			let Declarator { ident: Identifier(var_name), derived, initializer } =
 				checked_unwrap!(declarator.as_ref());
 
+			let new_var;
+			let new_var_ty;
 			if let Some(derived_decl) = derived {
 				match derived_decl {
 					DerivedDeclarator::Pointer => {
-						let new_var =
-							declare_in_function_new_variable(pointer_ty, None, func_builder);
-
+						new_var = declare_in_function_new_variable(pointer_ty, None, func_builder);
+						new_var_ty = pointer_ty;
 						name_env.insert(
 							var_name,
 							PointerIdent(PointerIdentifer {
@@ -433,16 +476,32 @@ fn translate_in_function_declaration<'clif, 'tcx>(
 					}
 				}
 			} else {
-				let new_var =
-					declare_in_function_new_variable(specifier.into(), None, func_builder);
-
+				new_var = declare_in_function_new_variable(specifier.into(), None, func_builder);
+				new_var_ty = specifier.into();
 				name_env.insert(
 					var_name,
 					SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier {
 						ident: new_var,
-						ty: SimpleType::PrimitiveTy(specifier.into()),
+						ty: SimpleType::PrimitiveTy(new_var_ty),
 					}),
 				);
+			}
+
+			if let Some(initializer) = initializer.as_ref() {
+				let init_val =
+					if let Some(const_val) = evaluate_constant_arithmetic_expression(initializer) {
+						func_builder.ins().iconst(new_var_ty, const_val)
+					} else {
+						translate_in_function_expression(
+							initializer,
+							Some(new_var_ty),
+							func_builder,
+							bmod,
+							name_env,
+							type_env,
+						)
+					};
+				func_builder.def_var(new_var, init_val);
 			}
 		}
 
@@ -467,7 +526,7 @@ fn translate_in_function_declaration<'clif, 'tcx>(
 				type_env.insert(sname, SimpleType::AggregateTy(struct_ty));
 			}
 
-			if let Some(Declarator { ident: Identifier(var_name), derived }) = declarator {
+			if let Some(Declarator { ident: Identifier(var_name), derived, .. }) = declarator {
 				let struct_simple_ty = checked_unwrap!(type_env.get(sname));
 				let struct_simple_ty = struct_simple_ty.to_owned();
 
@@ -534,33 +593,34 @@ fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 						PrimitiveIdent(PrimitiveIdentifier { ident, ty: PrimitiveTy(ty) }),
 						lhs_var,
 						{
-							let rhs_val = translate_in_function_expression(
-								rhs.as_ref(),
-								Some(*ty),
-								func_builder,
-								cmod,
-								name_env,
-								type_env,
-							);
-							let rhs_val = type_cast_value(rhs_val, *ty, func_builder);
+							let rhs_val = if let Some(const_val) =
+								evaluate_constant_arithmetic_expression(rhs.as_ref())
+							{
+								func_builder.ins().iconst(*ty, const_val)
+							} else {
+								let val = translate_in_function_expression(
+									rhs.as_ref(),
+									Some(*ty),
+									func_builder,
+									cmod,
+									name_env,
+									type_env,
+								);
+								type_cast_value(val, *ty, func_builder)
+							};
 
 							let lhs_val = func_builder.use_var(*ident);
 							let new_lhs_val = match operator {
 								Assignment => rhs_val,
 								AdditionAssignment => func_builder.ins().iadd(lhs_val, rhs_val),
 								SubtractionAssignment => func_builder.ins().isub(lhs_val, rhs_val),
-								MultiplicationAssignment => func_builder.ins().imul(lhs_val, rhs_val),
+								MultiplicationAssignment => {
+									func_builder.ins().imul(lhs_val, rhs_val)
+								}
 								DivisionAssignment => func_builder.ins().sdiv(lhs_val, rhs_val),
-								_ => unsafe { unreachable_unchecked() }
+								_ => unsafe { unreachable_unchecked() },
 							};
 							func_builder.def_var(*ident, new_lhs_val);
-
-							// match operator {
-							// 	Assignment => func_builder.def_var(*ident, rhs_val),
-							// 	AdditionAssignment => {
-							// 		let new_val =
-							// 	}
-							// }
 						}
 					);
 				}
@@ -680,6 +740,77 @@ fn translate_in_function_statement<'clif, 'tcx>(
 	// Introduction to Compiler Design: 6.5 Translating Statements
 	// Tiger book: 7.2 Translation in to trees
 	match stmt {
+		DoWhileStmt(DoWhileStatement { statement, condition }) => {
+			let loop_ebb = func_builder.create_ebb();
+			let exit_ebb = func_builder.create_ebb();
+
+			func_builder.ins().jump(loop_ebb, &[]);
+
+			func_builder.switch_to_block(loop_ebb);
+			translate_in_function_statement(
+				statement.as_ref(),
+				return_ty,
+				func_builder,
+				cmod,
+				name_env,
+				type_env,
+			);
+			let cond = translate_in_function_expression(
+				condition,
+				None,
+				func_builder,
+				cmod,
+				name_env,
+				type_env,
+			);
+			func_builder.ins().brz(cond, exit_ebb, &[]);
+			func_builder.ins().jump(loop_ebb, &[]);
+
+			func_builder.switch_to_block(exit_ebb);
+
+			func_builder.seal_block(loop_ebb);
+			func_builder.seal_block(exit_ebb);
+		}
+
+		WhileStmt(WhileStatement { condition, statement }) => {
+			let header_ebb = func_builder.create_ebb();
+			let loop_ebb = func_builder.create_ebb();
+			let exit_ebb = func_builder.create_ebb();
+
+			func_builder.ins().jump(header_ebb, &[]);
+
+			// header ebb
+			func_builder.switch_to_block(header_ebb);
+			let cond = translate_in_function_expression(
+				condition,
+				None,
+				func_builder,
+				cmod,
+				name_env,
+				type_env,
+			);
+			func_builder.ins().brz(cond, exit_ebb, &[]);
+			func_builder.ins().jump(loop_ebb, &[]);
+
+			// loop EBB
+			func_builder.switch_to_block(loop_ebb);
+			func_builder.seal_block(loop_ebb);
+			translate_in_function_statement(
+				statement.as_ref(),
+				return_ty,
+				func_builder,
+				cmod,
+				name_env,
+				type_env,
+			);
+			func_builder.ins().jump(header_ebb, &[]);
+
+			func_builder.switch_to_block(exit_ebb);
+
+			func_builder.seal_block(header_ebb);
+			func_builder.seal_block(exit_ebb);
+		}
+
 		// C11 Standard: 6.8.5.3 The for statement
 		ForStmt(ForStatement { initializer, condition, step, statement }) => {
 			if let Some(expr) = initializer.as_ref() {
@@ -923,7 +1054,7 @@ fn translate_function_definition<'clif, 'tcx>(
 
 	// declare parameters
 	for (i, Declaration { declarator, specifier }) in parameters.iter().enumerate() {
-		let Declarator { ident: Identifier(var_name), derived } =
+		let Declarator { ident: Identifier(var_name), derived, .. } =
 			checked_unwrap!(declarator.as_ref()); // checked in syntax analysis
 		let param_val = func_builder.ebb_params(entry_ebb)[i];
 
@@ -1008,7 +1139,7 @@ fn translate_function_definition<'clif, 'tcx>(
 
 	// finalize the function translation
 	func_builder.finalize();
-	// println!("{:?}", func_builder.func);
+	println!("{:?}", func_builder.func);
 
 	let function_len = cmod.define_function(function_id, ctxt).expect("failed to define function");
 
