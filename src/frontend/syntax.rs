@@ -3,8 +3,9 @@ use std::hint::unreachable_unchecked;
 
 use crate::error;
 
-const KEYWORDS: &'static [&'static str] =
-	&["if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct"];
+const KEYWORDS: &'_ [&'_ str] = &[
+	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void"
+];
 
 #[derive(Clone)]
 pub enum UnaryOperator {
@@ -101,7 +102,7 @@ pub enum DerivedDeclarator {
 }
 
 // Simplified declarators
-// C11 Standard: 6.7.6 Declarators
+// C11 6.7.6 Declarators
 #[derive(Clone)]
 pub struct Declarator<'a> {
 	pub ident: Identifier<'a>,
@@ -110,7 +111,7 @@ pub struct Declarator<'a> {
 }
 
 // Simplified declaration
-// C11 Standard 6.7 Declarations
+// C11 6.7 Declarations
 #[derive(Clone)]
 pub struct Declaration<'a> {
 	pub specifier: TypeSpecifier<'a>,
@@ -124,7 +125,7 @@ pub struct IfStatement<'a> {
 	pub else_statement: Option<Box<Statement<'a>>>,
 }
 
-// C11 Standard 6.8.5.3 The for statement
+// C11 6.8.5.3 The for statement
 // Simplification: initializer is expression
 #[derive(Clone)]
 pub struct ForStatement<'a> {
@@ -134,7 +135,7 @@ pub struct ForStatement<'a> {
 	pub statement: Box<Statement<'a>>,
 }
 
-// C11 Standard 6.8.5.1 The while statement
+// C11 6.8.5.1 The while statement
 #[derive(Clone)]
 pub struct WhileStatement<'a> {
 	pub condition: Expression<'a>,
@@ -179,8 +180,8 @@ pub struct StructType<'a> {
 }
 
 // Plain signed types
-// System V ABI: 3.1.2 Data Representation
-// C11 Standard: 6.2.5 Types
+// ABI: 3.1.2 Data Representation
+// C11: 6.2.5 Types
 #[derive(Clone)]
 pub enum TypeSpecifier<'a> {
 	CharTy,
@@ -188,10 +189,11 @@ pub enum TypeSpecifier<'a> {
 	IntTy,
 	LongTy,
 	StructTy(StructType<'a>),
+	VoidTy,
 }
 
 // Simplified function declarator
-// C11 Standard: 6.7.6.3
+// C11: 6.7.6.3
 #[derive(Clone)]
 pub struct FunctionDeclarator<'a> {
 	pub identifier: Identifier<'a>,
@@ -213,8 +215,7 @@ pub enum ExternalDeclaration<'a> {
 
 pub struct TranslationUnit<'a>(pub Vec<ExternalDeclaration<'a>>);
 
-//  DOI 10.1145/1942793.1942796
-//  but mostly https://github.com/vickenty/lang-c
+//  IP10 paper, and mostly https://github.com/vickenty/lang-c
 peg::parser! {grammar parser() for str {
 	rule blank() = [' ' | '\t' | '\n']
 	rule digit() = ['0'..='9']
@@ -234,6 +235,7 @@ peg::parser! {grammar parser() for str {
 		/ "short" { TypeSpecifier::ShortTy }
 		/ "int" { TypeSpecifier::IntTy }
 		/ "long" { TypeSpecifier::LongTy }
+		/ "void" { TypeSpecifier::VoidTy }
 		/ "struct" blank()+ i:identifier() blank()* "{" blank()* dss:declaration_stmt()* blank()* "}" {
 			let ds: Vec<_> = dss.iter().map(|s| {
 				use Statement::*;

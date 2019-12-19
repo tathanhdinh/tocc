@@ -32,16 +32,18 @@ fn main() {
 	frontend::semantics::check(&tu);
 
 	let mut am = backend::AbstractMachine::new(&tu);
-	if let Some((fclif, fptr)) = am.compiled_function(fname) {
-		println!("{}", &fclif);
+	if let Some(fptr) = am.compiled_function(fname) {
+		// println!("{}", &fclif);
 
 		let asm_formatter = {
 			let mut fm =
 				Formatter::new(FormatterStyle::INTEL).expect("failed to create assembly formatter");
 			fm.set_property(FormatterProperty::HexUppercase(false))
 				.expect("failed to disable hex uppercase");
-			fm.set_property(FormatterProperty::DisplacementSignedness(Signedness::SIGNED))
-				.expect("failed to set displacement signedness");
+			fm.set_property(FormatterProperty::DisplacementSignedness(
+				Signedness::SIGNED,
+			))
+			.expect("failed to set displacement signedness");
 			fm.set_property(FormatterProperty::ImmediateSignedness(Signedness::SIGNED))
 				.expect("failed to set immediate signedness");
 			fm.set_property(FormatterProperty::ForceRelativeRiprel(true))
@@ -82,7 +84,8 @@ mod tests {
 		frontend::semantics::check(&tu);
 
 		let mut am = backend::AbstractMachine::new(&tu);
-		let (_, fptr) = am.compiled_function(fname).unwrap();
+		// let (_, fptr) = am.compiled_function(fname).unwrap();
+		let fptr = am.compiled_function(fname).unwrap();
 
 		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn() -> i32>(fptr.as_ptr()) };
 		unsafe { fptr() }
@@ -95,7 +98,8 @@ mod tests {
 		frontend::semantics::check(&tu);
 
 		let mut am = backend::AbstractMachine::new(&tu);
-		let (_, fptr) = am.compiled_function(fname).unwrap();
+		// let (_, fptr) = am.compiled_function(fname).unwrap();
+		let fptr = am.compiled_function(fname).unwrap();
 
 		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn(i32) -> i32>(fptr.as_ptr()) };
 		unsafe { fptr(i) }

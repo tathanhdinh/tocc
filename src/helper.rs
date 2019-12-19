@@ -26,7 +26,7 @@ macro_rules! checked_if_let {
 			$block
 		} else {
 			unsafe { unreachable_unchecked() }
-			}
+		}
 	};
 }
 
@@ -36,6 +36,6 @@ macro_rules! checked_match {
 		match $expr {
 			$pat => $block,
 			_ => unsafe { unreachable_unchecked() },
-			}
+		}
 	};
 }

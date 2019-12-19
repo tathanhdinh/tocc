@@ -6,6 +6,7 @@ use cranelift_codegen::ir::Function;
 use cranelift_module::FuncId;
 use cranelift_simplejit::SimpleJITBuilder;
 
+mod function;
 mod support;
 mod translation;
 
@@ -19,7 +20,7 @@ use support::{
 pub struct AbstractMachine<'s> {
 	module: ConcreteModule,
 	name_env: NameBindingEnvironment<'s>,
-	compiled_funcs: Vec<(Function, FuncId, usize)>,
+	compiled_funcs: Vec<(FuncId, usize)>,
 }
 
 impl<'s> AbstractMachine<'s> {
@@ -33,12 +34,12 @@ impl<'s> AbstractMachine<'s> {
 		AbstractMachine { module, name_env, compiled_funcs }
 	}
 
-	pub fn compiled_function(&mut self, fname: &'_ str) -> Option<(&Function, &[u8])> {
+	pub fn compiled_function(&mut self, fname: &'_ str) -> Option<&[u8]> {
 		let ident = self.name_env.get(fname)?;
 		if let SimpleTypedIdentifier::FunctionIdent(FunctionIdentifier { ident, .. }) = ident {
-			let (fclif, fid, flen) = self.compiled_funcs.iter().find(|(_, fid, _)| fid == ident)?;
+			let (fid, flen) = self.compiled_funcs.iter().find(|(fid, _)| fid == ident)?;
 			let fptr = translation::compiled_function(*fid, *flen, &mut self.module);
-			Some((fclif, fptr))
+			Some(fptr)
 		} else {
 			None
 		}
