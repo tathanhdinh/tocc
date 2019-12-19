@@ -21,11 +21,16 @@ use crate::{
 	unimpl,
 };
 
-use super::support::{
-	AggregateIdentifier, AggregateType, ConcreteModule, FunctionIdentifier, FunctionType,
-	NameBindingEnvironment, PointerIdentifer, PrimitiveIdentifier, SimpleType,
-	SimpleTypedIdentifier, TypeBindingEnvironment,
+use super::{
+	function::translate_function,
+	support::{
+		evaluate_constant_arithmetic_expression, AggregateIdentifier, AggregateType,
+		ConcreteModule, FunctionIdentifier, FunctionType, NameBindingEnvironment, PointerIdentifer,
+		PrimitiveIdentifier, SimpleType, SimpleTypedIdentifier, TypeBindingEnvironment,
+	},
 };
+
+// use super::function::*;
 
 static NEW_VAR_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -38,42 +43,6 @@ fn type_cast_value<'clif>(val: Value, ty: Type, func_builder: &'clif mut Functio
 		func_builder.ins().sextend(ty, val)
 	} else {
 		val
-	}
-}
-
-fn evaluate_constant_arithmetic_expression(expr: &'_ Expression) -> Option<i64> {
-	use Expression::*;
-
-	match expr {
-		ConstantExpr(Constant::IntegerConst(i)) => Some(i.into()),
-
-		UnaryOperatorExpr(UnaryOperatorExpression { operator, operand }) => {
-			use UnaryOperator::*;
-
-			let val = evaluate_constant_arithmetic_expression(operand.as_ref())?;
-			match operator {
-				Negation => Some(-val),
-				PreIncrement => Some(val + 1),
-				PostIncrement => Some(val),
-				Address => None,
-			}
-		}
-
-		BinaryOperatorExpr(BinaryOperatorExpression { operator, lhs, rhs }) => {
-			use BinaryOperator::*;
-
-			let lval = evaluate_constant_arithmetic_expression(lhs.as_ref())?;
-			let rval = evaluate_constant_arithmetic_expression(rhs.as_ref())?;
-			match operator {
-				Multiplication => Some(lval * rval),
-				Division => Some(lval / rval),
-				Addition => Some(lval + rval),
-				Subtraction => Some(lval - rval),
-				_ => None,
-			}
-		}
-
-		_ => None,
 	}
 }
 
@@ -253,13 +222,9 @@ fn translate_in_function_expression<'clif, 'tcx>(
 							type_env,
 						)
 					};
-					// let rhs = translate_in_function_expression(rhs, Some(lhs_ty), func_builder, bm, name_env, type_env);
 					(lhs, rhs)
 				}
 			};
-
-			// let lhs = translate_in_function_expression(lhs, func_builder, bm, name_env, type_env);
-			// let rhs = translate_in_function_expression(rhs, func_builder, bm, name_env, type_env);
 
 			let lhs_ty = func_builder.func.dfg.value_type(lhs);
 			let rhs_ty = func_builder.func.dfg.value_type(rhs);
@@ -381,8 +346,6 @@ fn translate_in_function_expression<'clif, 'tcx>(
 		}
 
 		CallExpr(CallExpression { callee, arguments }) => {
-			use SimpleTypedIdentifier::*;
-
 			let func_name: &str = callee.into();
 			let func = checked_unwrap!(name_env.get(func_name));
 			match func {
@@ -391,7 +354,10 @@ fn translate_in_function_expression<'clif, 'tcx>(
 					..
 				}) => {
 					let mut sig = bm.make_signature();
-					sig.returns.push(AbiParam::new(*return_ty)); // return type
+
+					if let Some(return_ty) = return_ty.as_ref() {
+						sig.returns.push(AbiParam::new(*return_ty)); // return type
+					}
 					for pty in param_ty {
 						sig.params.push(AbiParam::new(*pty)); // parameter types
 					}
@@ -427,7 +393,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 					func_builder.inst_results(call)[0]
 				}
 
-				_ => unimpl!("call an unsupported identifier"),
+				_ => unimpl!("unsupported call identifier"),
 			}
 		}
 	}
@@ -455,6 +421,8 @@ fn translate_in_function_declaration<'clif, 'tcx>(
 	let pointer_ty = bmod.target_config().pointer_type();
 
 	match specifier {
+		VoidTy => todo!(),
+
 		CharTy | ShortTy | IntTy | LongTy => {
 			let Declarator { ident: Identifier(var_name), derived, initializer } =
 				checked_unwrap!(declarator.as_ref());
@@ -476,15 +444,23 @@ fn translate_in_function_declaration<'clif, 'tcx>(
 					}
 				}
 			} else {
-				new_var = declare_in_function_new_variable(specifier.into(), None, func_builder);
-				new_var_ty = specifier.into();
-				name_env.insert(
-					var_name,
-					SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier {
-						ident: new_var,
-						ty: SimpleType::PrimitiveTy(new_var_ty),
-					}),
-				);
+				// non pointer type
+				match specifier {
+					VoidTy => unsafe { unreachable_unchecked() },
+
+					_ => {
+						new_var =
+							declare_in_function_new_variable(specifier.into(), None, func_builder);
+						new_var_ty = specifier.into();
+						name_env.insert(
+							var_name,
+							SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier {
+								ident: new_var,
+								ty: SimpleType::PrimitiveTy(new_var_ty),
+							}),
+						);
+					}
+				}
 			}
 
 			if let Some(initializer) = initializer.as_ref() {
@@ -730,7 +706,7 @@ fn translate_in_function_statement_expression<'clif, 'tcx>(
 }
 
 fn translate_in_function_statement<'clif, 'tcx>(
-	stmt: &'tcx Statement, return_ty: &'clif Type, func_builder: &'clif mut FunctionBuilder,
+	stmt: &'tcx Statement, return_ty: Option<Type>, func_builder: &'clif mut FunctionBuilder,
 	cmod: &'clif mut ConcreteModule, name_env: &'_ mut NameBindingEnvironment<'tcx>,
 	type_env: &'_ mut TypeBindingEnvironment<'tcx>,
 ) {
@@ -961,13 +937,13 @@ fn translate_in_function_statement<'clif, 'tcx>(
 			if let Some(expr) = expr {
 				let v = translate_in_function_expression(
 					expr,
-					Some(*return_ty),
+					return_ty,
 					func_builder,
 					cmod,
 					name_env,
 					type_env,
 				);
-				let v = type_cast_value(v, *return_ty, func_builder);
+				let v = type_cast_value(v, checked_unwrap!(return_ty), func_builder);
 				func_builder.ins().return_(&[v]);
 			}
 		}
@@ -975,7 +951,12 @@ fn translate_in_function_statement<'clif, 'tcx>(
 }
 
 fn translate_function_definition<'clif, 'tcx>(
-	func: &'tcx FunctionDefinition, ctxt: &'clif mut Context, cmod: &'clif mut ConcreteModule,
+	FunctionDefinition {
+		specifier,
+		declarator: FunctionDeclarator { identifier: Identifier(fname), parameters },
+		body,
+	}: &'tcx FunctionDefinition,
+	ctxt: &'clif mut Context, cmod: &'clif mut ConcreteModule,
 	name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ mut TypeBindingEnvironment<'tcx>,
 ) -> (Function, FuncId, usize) {
 	use SimpleType::*;
@@ -983,15 +964,18 @@ fn translate_function_definition<'clif, 'tcx>(
 
 	let pointer_ty = cmod.target_config().pointer_type();
 
-	let FunctionDefinition {
-		specifier,
-		declarator: FunctionDeclarator { identifier: Identifier(fname), parameters },
-		body,
-	} = func;
-
 	// return type
-	let return_ty = specifier.into();
-	ctxt.func.signature.returns.push(AbiParam::new(return_ty));
+	let return_ty = match specifier {
+		CharTy | ShortTy | IntTy | LongTy => {
+			let ty = specifier.into();
+			ctxt.func.signature.returns.push(AbiParam::new(ty));
+			Some(ty)
+		}
+
+		StructTy(_) => todo!(),
+
+		VoidTy => None,
+	};
 
 	// parameter types
 	let mut param_ty = Vec::new();
@@ -1006,6 +990,7 @@ fn translate_function_definition<'clif, 'tcx>(
 				}
 			}
 		} else {
+			// non pointer types
 			match specifier {
 				CharTy | ShortTy | IntTy | LongTy => {
 					let pty = specifier.into();
@@ -1020,6 +1005,8 @@ fn translate_function_definition<'clif, 'tcx>(
 					// System V ABI AMD64: 3.2.3 Parameter Passing
 					unimpl!("passing struct by value unsupported")
 				}
+
+				VoidTy => unsafe { unreachable_unchecked() },
 			}
 		}
 	}
@@ -1059,6 +1046,8 @@ fn translate_function_definition<'clif, 'tcx>(
 		let param_val = func_builder.ebb_params(entry_ebb)[i];
 
 		match specifier {
+			VoidTy => todo!(),
+
 			CharTy | ShortTy | IntTy | LongTy => {
 				if let Some(derived_decl) = derived {
 					match derived_decl {
@@ -1130,7 +1119,7 @@ fn translate_function_definition<'clif, 'tcx>(
 	// translate function body
 	translate_in_function_statement(
 		body,
-		&return_ty,
+		return_ty,
 		&mut func_builder,
 		cmod,
 		&mut name_env,
@@ -1147,31 +1136,34 @@ fn translate_function_definition<'clif, 'tcx>(
 }
 
 pub fn compiled_function<'clif>(
-	fid: FuncId, flen: usize, cmod: &'clif mut ConcreteModule,
+	fid: FuncId, flen: usize, module: &'clif mut ConcreteModule,
 ) -> &'clif [u8] {
-	let fptr = cmod.get_finalized_function(fid);
+	let fptr = module.get_finalized_function(fid);
 	unsafe { slice::from_raw_parts(mem::transmute::<_, *const u8>(fptr), flen as _) }
 }
 
 pub fn compile<'clif, 'tcx>(
-	tu: &'tcx TranslationUnit, cmod: &'clif mut ConcreteModule,
+	tu: &'tcx TranslationUnit, module: &'clif mut ConcreteModule,
 	name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ mut TypeBindingEnvironment<'tcx>,
-) -> Vec<(Function, FuncId, usize)> {
+) -> Vec<(FuncId, usize)> {
 	use ExternalDeclaration::*;
 	use TypeSpecifier::*;
 
 	let TranslationUnit(extern_decs) = tu;
 
-	let mut ctxt = cmod.make_context();
-	let mut funcs = Vec::new();
+	let mut ctxt = module.make_context();
+	// let mut funcs = Vec::new();
+	let mut sfuncs = Vec::new();
 
 	for dec in extern_decs {
 		match dec {
 			FunctionDefinitionDecl(func_def) => {
-				let func =
-					translate_function_definition(func_def, &mut ctxt, cmod, name_env, type_env);
-				funcs.push(func);
-				cmod.clear_context(&mut ctxt);
+				// let func =
+				// 	translate_function_definition(func_def, &mut ctxt, cmod, name_env, type_env);
+				// funcs.push(func);
+				// cmod.clear_context(&mut ctxt);
+				let func = translate_function(func_def, &mut ctxt, module, name_env, type_env);
+				sfuncs.push(func);
 			}
 
 			Decl(Declaration { specifier, .. }) => {
@@ -1185,6 +1177,6 @@ pub fn compile<'clif, 'tcx>(
 		}
 	}
 
-	cmod.finalize_definitions();
-	funcs
+	module.finalize_definitions();
+	sfuncs
 }

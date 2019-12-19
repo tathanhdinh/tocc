@@ -7,11 +7,20 @@ use cranelift_simplejit::SimpleJITBackend;
 
 use crate::{
 	checked_if_let, checked_unwrap,
-	frontend::syntax::{Declaration, Declarator, Identifier, StructType, TypeSpecifier},
+	frontend::syntax::{
+		BinaryOperator, BinaryOperatorExpression, Constant, Declaration, Declarator, Expression,
+		Identifier, StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
+	},
 };
 
-// Engineering a Compiler: 7.7.1 Understanding Structure Layout
-// Dragon Book: 6.3.4 Storage Layouts for Local Names
+pub enum SimpleConcreteType {
+	ConstantTy(i64),
+	ValueTy(Value),
+	StackSlotTy(StackSlot),
+	UnitTy,
+}
+// EaC 7.7.1 Understanding Structure Layout
+// DRAGON 6.3.4 Storage Layouts for Local Names
 #[derive(Clone)]
 pub struct AggregateType<'a> {
 	pub fields: Vec<(&'a str, Type)>,
@@ -36,7 +45,9 @@ impl AggregateType<'_> {
 	}
 
 	pub fn bytes(&self) -> usize {
-		self.fields.iter().fold(0usize, |sum, (_, fty)| sum + fty.bytes() as usize)
+		self.fields
+			.iter()
+			.fold(0usize, |sum, (_, fty)| sum + fty.bytes() as usize)
 	}
 }
 
@@ -47,11 +58,21 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 		let declarations = checked_unwrap!(declarations.as_ref());
 		let fields: Vec<(&str, Type)> = declarations
 			.iter()
-			.map(|Declaration { specifier, declarator }| {
-				checked_if_let!(Some(Declarator { ident: Identifier(ident), .. }), declarator, {
-					(*ident, specifier.into())
-				})
-			})
+			.map(
+				|Declaration {
+				     specifier,
+				     declarator,
+				 }| {
+					checked_if_let!(
+						Some(Declarator {
+							ident: Identifier(ident),
+							..
+						}),
+						declarator,
+						{ (*ident, specifier.into()) }
+					)
+				},
+			)
 			.collect();
 		AggregateType { fields }
 	}
@@ -59,7 +80,7 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 
 #[derive(Clone)]
 pub struct FunctionType {
-	pub return_ty: Type,
+	pub return_ty: Option<Type>,
 	pub param_ty: Vec<Type>,
 }
 
@@ -124,3 +145,39 @@ pub type TypeBindingEnvironment<'a> = HashMap<&'a str, SimpleType<'a>>;
 
 // backend-ed module
 pub type ConcreteModule = Module<SimpleJITBackend>;
+
+pub fn evaluate_constant_arithmetic_expression(expr: &'_ Expression) -> Option<i64> {
+	use Expression::*;
+
+	match expr {
+		ConstantExpr(Constant::IntegerConst(i)) => Some(i.into()),
+
+		UnaryOperatorExpr(UnaryOperatorExpression { operator, operand }) => {
+			use UnaryOperator::*;
+
+			let val = evaluate_constant_arithmetic_expression(operand.as_ref())?;
+			match operator {
+				Negation => Some(-val),
+				PreIncrement => Some(val + 1),
+				PostIncrement => Some(val),
+				Address => None,
+			}
+		}
+
+		BinaryOperatorExpr(BinaryOperatorExpression { operator, lhs, rhs }) => {
+			use BinaryOperator::*;
+
+			let lval = evaluate_constant_arithmetic_expression(lhs.as_ref())?;
+			let rval = evaluate_constant_arithmetic_expression(rhs.as_ref())?;
+			match operator {
+				Multiplication => Some(lval * rval),
+				Division => Some(lval / rval),
+				Addition => Some(lval + rval),
+				Subtraction => Some(lval - rval),
+				_ => None,
+			}
+		}
+
+		_ => None,
+	}
+}

@@ -1,0 +1,118 @@
+push ebp
+1. t1 = esp0
+2. esp1 = esp0 - 4
+3. mem1 = store(mem0, t1, ebp0, 0, reg32_t)
+
+mov ebp, esp
+4. ebp1 = esp1
+
+sub esp, 28h
+5. esp2 = esp1 - 40
+
+mov [ebp - ch], 0h      ; unsigned c;
+6. t2 = ebp1 - 12
+7. mem2 = store(mem1, t2, 0, reg32_t)
+
+cmp [ebp + 8h], 0h      ; if (buf)
+8. t3 = ebp1 + 8
+9. t4 = load(mem2, t3, 0, reg32_t)
+10. z1 = (t4 == 0)
+
+je 8048442h
+11. if z1 then goto 8048442h else goto 8048432h
+
+mov eax, [ebp + 8h]
+12. t5 = ebp + 8
+13. eax1 = load(mem2, t5, 0, reg32_t)
+
+mov [esp], eax
+14. t6 = esp2
+15. mem3 = store(mem2, t6, eax1, 0, reg32_t)
+
+call 804831ch           ; strlen(buf)
+16. call(strlen, mem3, reg)
+
+mov edx, [ebp + ch]     ; out
+17. t7 = ebp1 + 12
+18. edx1 = load(mem3, t7, 0, reg32_t)
+
+mov [edx], eax          ; *out = strlen(buf)
+19. t8 = edx1
+20. mem4 = store(mem3, t8, eax1, 0, reg32_t)
+
+mov eax, [ebp + ch]
+21. mem5 = phi(mem2, mem4)
+22. t9 = ebp1 + 12
+23. eax3 = load(mem5, t9, 0, reg32_t)
+
+mov eax, [eax]          ; *out
+24. t10 = eax3
+25. eax4 = load(mem5, t10, 0, reg32_t)
+
+test eax, eax           ; if (*out)
+26. z2 = (eax == 0)
+
+je 8048456h
+27. if z2 then goto 8038456h else goto 804844bh
+
+mov eax, [ebp + ch]     ; out
+28. t11 = ebp1 + 12
+29. eax5 = load(mem5, t11, 0, reg32_t)
+
+mov eax, [eax]          ; *out
+30. t12 = eax5
+31. eax6 = load(mem5, t12, 0, reg32_t)
+
+sub eax, 1h             ;
+32. eax7 = eax6 - 1
+
+mov [ebp - ch], eax     ; c = *out - 1
+33. t13 = ebp1 - 12
+34. mem6 = store(mem5, t13, eax7, 0, reg32_t)
+
+mov eax, [ebp - ch]     ; return c
+35. mem7 = phi(mem5, mem6)
+36. t14 = ebp1 - 12
+37. eax8 = load(mem7, t14, 0, reg32_t)
+
+leave
+ret
+
+
+base: ebp0 + 4
+
+buf: mem2[base + 8] (foo's argument), mem2[base - 44] (strlen's argument)
+=> T(mem2[base + 8]) = T(mem2[base - 44]) = ptr(int8_t)
+
+out: mem2[base + 8] (foo's argument), eax3
+=> T(mem4[mem2[base + 8]]) = T(eax3) = uint32_t
+=> T(mem2[base + 8]) = ptr(eax3) = ptr(uint32_t)
+
+c: mem[base - 16]
+=> T(eax6) = T(mem5[mem[base + 8]]) (31) <: mem4[mem2[base + 8]] = uint32_t (20) (load from memory cell of type uin32_t)
+=> T(eax6) <: y && T(1) <: y && y <: T(eax7) && y <: uint32_t (y is the type used in subtraction, c = *out - 1)
+=> T(eax7) = T(mem6[base - 16]) (return c)
+
+constraint rules: fig 7
+
+v = load(m, i ,d, regn_t): load n bytes at memory cell m[i] (v = m[i]), so T(m[i]) <: regn_t (e.g. int32_t, code_t)
+store(m,i, v, d, regn_t): store n bytes to memory cell m[i], T(m[i]) <: regn_t (nothing special)
+
+Problems:
+ - alias in store/load, e.g.
+    - store(m, i, v0, 0, reg0_t) => T(i) = ptr(v0)
+    - store(m, i, v1, 0, reg1_t) => T(i) = ptr(v1)
+ => must no-alias
+
+  - subtype on struct, e.g.
+    - struct S1 { uint32_t: s } <: struct S0 { uint64_t: s } => void (*f1)(struct S1) and void (*f0)(struct S0) should be covariant
+
+  - alignment on struct, e.g.
+    - struct S0 {
+      uint32_t: a;
+      uint32_t: b;
+    }
+    - struct S1 {
+      uint32_t: a;
+      uint64_t: b;
+    }
