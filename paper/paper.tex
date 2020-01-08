@@ -21,7 +21,7 @@
 {
   bookmarks       = true,
   unicode         = true,
-  pdftitle        = "Practical Type Blurring",
+  pdftitle        = "Practical Type Flattening",
   pdfauthor       = "Ta Thanh Dinh", %auteur du document
 %   pdfsubject      = "A Conceptual Approach for Message Format Extraction",
   pdftoolbar      = true, %barre d'outils non visible
@@ -46,7 +46,7 @@
 
 \begin{document}
 %
-\title{Practical Type Blurring}
+\title{Practical Type Flattening}
 %
 %\titlerunning{Abbreviated paper title}
 % If the paper title is too long for the running head, you can set
@@ -78,68 +78,108 @@ type systems of high-level and machine language.
 %
 %
 \section{Introduction}
-Binary code type inference is to restore high-level type information of variables,
+Binary code type recovery is to restore high-level type information of variables,
 functions from machine codes. It is useful for reverse code engineering (e.g.
 decompilation) or static binary rewriting/instrumentation, just to name a few.
-Type reconstruction is available in several binary analysis
+Type recovery is available in several binary analysis
 tools~\cite{noauthor_hex-rays_nodate, noauthor_jeb_nodate, noauthor_ghidra_nodate}
-as a result of machine code decompilation. Academic research includes~\cite{mycroft_type-based_1999}
-which is one of the pilot papers on this domain, an improvement supporting
-a limited form of subtyping is presented in~\cite{lee_tie_2011}, a survey of
-research up until 2016 is given in~\cite{caballero_type_2016}. One of recent
-directions is to use machine learning~\cite{maier_typeminer_2019}, which is out of scope of
-the paper. All approaches tend to output a C-like type system.
+as a result of machine code decompilation. Academic research includes the classic
+paper of Mycroft~\cite{mycroft_type-based_1999} which is probably the first work
+on the domain, though earlier ideas~\cite{shivers_data-flow_1990} have been used
+to recover types of programs in Scheme - a dynamically typed language.
+Lee et al.~\cite{lee_tie_2011} introduces
+an extension for Mycroft's work which supports a limited form of subtyping.
+Caballero and Lin give a survey~\cite{caballero_type_2016} for research up until 2015.
+Recent directions are using machine learning~\cite{maier_typeminer_2019} or statistical
+language model~\cite{katz_estimating_2016}, which are out of scope of the paper.
+All approaches tend to output a C-like type system.
 
-Basically, the type inference starts by detecting high-level variables from
+Basically, the binary code type recovery starts by detecting high-level objects from
 machine-dependent primitives: local variables are stored in function stack frame,
-parameters are passed from registers, see~\cite{balakrishnan_wysinwyx_2007} for example.
-Type constraints are generated then through the use of these variables. Finally,
-the constraints are solved, each variable is annotated with a type given by the solver.
+parameters are passed from registers, see~\cite{balakrishnan_wysinwyx_2007} for related techniques.
+Type constraints are generated gradually through the \empĥ{low-level use} of objects.
+The system of constraints is solved then, each object is assigned a certain
+(polymorphic) type.
 
-Though most papers agree that type information is removed in compilation~\cite{lee_tie_2011,caballero_type_2016,lin_automatic_2010},
-there is no explicit explication of \emph{why and how} some type information is not needed
-(so removed) in machine codes. A popular point of view that types should attach with
-storage specific primitives (e.g. \texttt{int} is some \texttt{32-bit} signed integer
-stored in a register or stack), though mostly correct, does not reveal the nature of
-types. This is one of the reasons why some researchers unify data structure reverse
-engineering with type reconstruction~\cite{caballero_type_2016, caballero_polyglot_2007}.
-In some languages other than C, types can be zero-sized~\cite{noauthor_phantom_nodate}, another example is
-\emph{regions}~\cite{grossman_region-based_2002} which have no storage imprint.
+This bird view may give off an impression that the
+binary code type reconstruction is a well established research domain, incorrect results
+are because of foreign reasons: incorrect binary code disassembling,
+high-level variable detection, etc. But we claim that there are probably intrinsic problems.
 
-The binary type reconstruction is influenced by \emph{Algorithm W} used originally to
-type check/inference for programs of Hindley-Milner's type system (abbr. HM)~\cite{milner_theory_1978,hindley_principal_1969,cardelli_basic_1987}.
-While the supposed target is a C-like type system, some authors claim to replicate
-the result of \emph{principal types}~\cite{damas_principal_1982,hindley_principal_1969}
-by recovering \emph{the most precise yet conservative} type~\cite{lee_tie_2011}.
-Such a result is sound in a limited context only, C's type system is not HM: there
-are functions that are trivially typed in C by casting, but not typeable in HM's.
-Actually, it is not rare to observe type inconsistency in decompilation results
+\emph{First}, there is a common agreement that type information is removed through
+compilation~\cite{lee_tie_2011,caballero_type_2016,lin_automatic_2010},
+but there is no explicit explication of why and how some type information is not needed,
+so removed, in machine codes. The result of reconstructing \emph{the most precise yet conservative}
+type~\cite{lee_tie_2011}, which may suggest the well-known
+\emph{principal types}~\cite{damas_principal_1982,hindley_principal_1969},
+is sound in a limited context only. Actually not all type
+information can be restored.
+
+\emph{Second}, though some techniques of data structure reverse
+engineering~\cite{caballero_type_2016, caballero_polyglot_2007} can be reused for
+type recovery, types do not always attach with storage specific primitives (for example
+\texttt{int} is some \texttt{32-bit} signed integer stored in a register or stack).
+The storage-based point of view is almost correct in low-level languages like C, it
+does not reveal the nature of types. In other languages, types can be
+zero-sized~\cite{noauthor_phantom_nodate}, another examples are
+\emph{regions}~\cite{grossman_region-based_2002} or \emph{units-of-measure}~\cite{kennedy_types_2010}
+which leave no storage imprint.
+
+\emph{Third}, current research uses some variants of
+\emph{Algorithm W}~\cite{milner_theory_1978,cardelli_basic_1987} to resolve type
+constraints in a C-like language. But the polymorphism in C is rather
+\emph{ad-hoc}~\cite{strachey_fundamental_2000}: some functions are
+trivially typed in C by casting, but not typeable in Hindley-Milner type system. This
+problem is remarked already in~\cite{mycroft_type-based_1999}, but unfortunately omitted in
+later extension~\cite{lee_tie_2011}. In real world, it is not rare to see type inconsistency in decompilation results
 of security tools.
+
+% used originally to
+% type check/inference for programs of Hindley-Milner's type system (abbr. HM).
+% While the supposed target is a C-like type system, some authors claim to replicate
+% the result of \emph{principal types}~\cite{damas_principal_1982,hindley_principal_1969}
+% by recovering \emph{the most precise yet conservative} type~\cite{lee_tie_2011}.
+% Such a result is sound in a limited context only, C's type system is not HM: there
+% are functions that are trivially typed in C by casting, but not typeable in HM's.
+% Actually, it is not rare to observe type inconsistency in decompilation results
+% of security tools.
 
 \paragraph{Contribution}
 We first discuss the type information loss in compilation and some cases
 where assigning a high-level \emph{type} for a low-level primitive
 is not possible. Though this part is not novel, we bring it to the context
 of binary code analysis to show limits of type reconstruction. Next, we present
-a C compiler which tries to hide types from reconstruction techniques described
+a proof-of-concept C compiler which tries to hide types from reconstruction techniques described
 in current researches.
 
 \section{Type information loss}
-Type system of a language can be considered as a set or rules about constraints
-on programs of this language. On statically typed languages, the constraints
-can be mechanically checked and proved without running the program, it helps
-avoid bugs as Robin Milner's famous slogan~\textquote{well-type program cannot go wrong}~\cite{milner_theory_1978}.
+Informally speaking, a type system is some set of constraints and rules to infer constraints
+on a program. The type system decides which are allowed or forbidden on the semantics of the language,
+for example adding two pointers is not allowed in C because this operation is semantically nonsense.
+Type helps avoid bugs as summarized in Milner's famous
+slogan~\textquote{well-type program cannot go wrong}~\cite{milner_theory_1978}.
 
-There exists at least two sources information loss: \emph{type erasure} and
-\emph{data indistinguishability}~\cite{noauthor_struct_nodate}, happening at
-different phases of compilation.
+In statically typed languages, the compiler checks the type constraints then generates
+machine codes (we consider here only languages which generates machine codes), but then
+most of constraints are lost because they are not needed for running
+the program. There are at least two sources of
+information loss: \emph{type erasure} and \emph{data indistinguishability},
+happening at different phases of compilation.
 
 \subsection{Type erasure}
-Once the program is type checked, the type information is normally not needed for
-evaluation (i.e. running program): the compiler can select a consistent machine-dependent
+\emph{Type erasure} means the "intensional" type of an object is hidden/inaccessible or
+completely removed in some context. It appears under several concepts: subtype substitution,
+generic specialization (or monomorphization), or boxing, just name a few. In some cases,
+e.g. subtype substitution, the (sub)type of the wrapped object does not completely removed,
+it is just not accessible in contexts where only behaviors of the super type are allowed.
+Such a case will not be discussed in the paper since we look at the low-level machine code.
+
+Once the program is type checked,
+% the type information is normally not needed for evaluation (i.e. running program),
+ the compiler will select a consistent machine-dependent
 representation for each high-level type, this representation may only have little
 relation with the original type but it does not violate the fact that the program
-is checked (then safe).
+is checked, then safe.
 
 \begin{example}\label{exa:typed_enum}
 \texttt{C++}'s typed enum.

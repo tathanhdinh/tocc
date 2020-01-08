@@ -4,7 +4,7 @@ use std::hint::unreachable_unchecked;
 use crate::error;
 
 const KEYWORDS: &'_ [&'_ str] = &[
-	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void"
+	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void",
 ];
 
 #[derive(Clone)]
@@ -25,6 +25,7 @@ pub struct UnaryOperatorExpression<'a> {
 pub enum BinaryOperator {
 	Multiplication,
 	Division,
+	Remainder,
 	Addition,
 	Subtraction,
 	Less,
@@ -370,6 +371,13 @@ peg::parser! {grammar parser() for str {
 				rhs: Box::new(b),
 			})
 		}
+		a:(@) blank()* "%" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::Remainder,
+				lhs: Box::new(a),
+				rhs: Box::new(b),
+			})
+		}
 		--
 		i:identifier() "(" blank()* es:expression() ** "," blank()* ")" {
 			Expression::CallExpr(CallExpression {
@@ -419,7 +427,7 @@ peg::parser! {grammar parser() for str {
 			})
 		}
 		--
-		i:identifier() {
+		i:identifier() blank()* {
 			Expression::IdentifierExpr(i)
 		}
 		--
