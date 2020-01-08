@@ -1,15 +1,26 @@
-use std::{fs, path::PathBuf};
-
-use zydis::{
-	AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer,
-	Signedness,
+use std::{
+	fs::{self, File},
+	hint::unreachable_unchecked,
+	mem,
+	path::PathBuf,
+	slice,
+	str::FromStr,
 };
+
+use cranelift::prelude::*;
+use cranelift_faerie::{FaerieBackend, FaerieBuilder, FaerieTrapCollection};
+use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
+use target_lexicon::triple;
+
+use zydis::{AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer, Signedness};
 
 use structopt::StructOpt;
 
 mod backend;
 mod frontend;
 mod helper;
+
+// use crate::{checked_unwrap_result};
 
 #[derive(StructOpt)]
 #[structopt(name = "tocc", about = "A type-obfuscated C compiler")]
@@ -20,55 +31,87 @@ struct Opt {
 
 	/// Function
 	#[structopt(name = "function", short = "f")]
-	fname: String,
+	fname: Option<String>,
+
+	/// JIT compilation
+	#[structopt(name = "code generation mode", short = "j")]
+	jit: bool,
 }
 
 fn main() {
 	let opt = Opt::from_args();
-	let (src, fname) = { (opt.src.as_path(), opt.fname.as_str()) };
+	// let (src, fname) = { (opt.src.as_path(), opt.fname.as_str()) };
+	let src = opt.src.as_path();
 
-	let src_code = fs::read_to_string(src).expect("Failed to read source code file");
+	let src_code = fs::read_to_string(src).expect("failed to read source code file");
 	let tu = frontend::syntax::parse(src_code.as_str());
 	frontend::semantics::check(&tu);
 
-	let mut am = backend::AbstractMachine::new(&tu);
-	if let Some(fptr) = am.compiled_function(fname) {
-		// println!("{}", &fclif);
+	if opt.jit {
+		let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+		let mut am = backend::AbstractMachine::<'_, SimpleJITBackend>::new(&tu, builder);
+		if let Some(fname) = &opt.fname {
+			if let Some((fptr, flen)) = am.compiled_function(fname.as_str()) {
+				let fptr = unsafe { slice::from_raw_parts(mem::transmute::<_, *const u8>(fptr), flen as _) };
 
-		let asm_formatter = {
-			let mut fm =
-				Formatter::new(FormatterStyle::INTEL).expect("failed to create assembly formatter");
-			fm.set_property(FormatterProperty::HexUppercase(false))
-				.expect("failed to disable hex uppercase");
-			fm.set_property(FormatterProperty::DisplacementSignedness(
-				Signedness::SIGNED,
-			))
-			.expect("failed to set displacement signedness");
-			fm.set_property(FormatterProperty::ImmediateSignedness(Signedness::SIGNED))
-				.expect("failed to set immediate signedness");
-			fm.set_property(FormatterProperty::ForceRelativeRiprel(true))
-				.expect("failed to force relative RIP");
-			fm.set_property(FormatterProperty::AddressSignedness(Signedness::SIGNED))
-				.expect("failed to set address signedness");
-			fm.set_property(FormatterProperty::ForceRelativeBranches(true))
-				.expect("failed to set relative branches");
-			fm
-		};
+				let asm_formatter = {
+					let mut fm = Formatter::new(FormatterStyle::INTEL).expect("failed to create assembly formatter");
+					fm.set_property(FormatterProperty::HexUppercase(false)).expect("failed to disable hex uppercase");
+					fm.set_property(FormatterProperty::DisplacementSignedness(Signedness::SIGNED))
+						.expect("failed to set displacement signedness");
+					fm.set_property(FormatterProperty::ImmediateSignedness(Signedness::SIGNED))
+						.expect("failed to set immediate signedness");
+					fm.set_property(FormatterProperty::ForceRelativeRiprel(true)).expect("failed to force relative RIP");
+					fm.set_property(FormatterProperty::AddressSignedness(Signedness::SIGNED))
+						.expect("failed to set address signedness");
+					fm.set_property(FormatterProperty::ForceRelativeBranches(true))
+						.expect("failed to set relative branches");
+					fm
+				};
 
-		let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64)
-			.expect("Failed to create assembly decoder");
+				let asm_decoder =
+					Decoder::new(MachineMode::LONG_64, AddressWidth::_64).expect("failed to create assembly decoder");
 
-		let mut decoded_inst_buffer = [0u8; 200];
-		let mut decoded_inst_buffer = OutputBuffer::new(&mut decoded_inst_buffer[..]);
+				let mut decoded_inst_buffer = [0u8; 200];
+				let mut decoded_inst_buffer = OutputBuffer::new(&mut decoded_inst_buffer[..]);
 
-		for (inst, ip) in asm_decoder.instruction_iterator(fptr, 0) {
-			asm_formatter
-				.format_instruction(&inst, &mut decoded_inst_buffer, Some(ip), None)
-				.expect("Failed to format instruction");
-			println!("0x{:02x}\t{}", ip, decoded_inst_buffer);
+				for (inst, ip) in asm_decoder.instruction_iterator(fptr, 0) {
+					asm_formatter
+						.format_instruction(&inst, &mut decoded_inst_buffer, Some(ip), None)
+						.expect("failed to format instruction");
+					println!("0x{:02x}\t{}", ip, decoded_inst_buffer);
+				}
+			} else {
+				println!("function {} not found", fname)
+			}
 		}
 	} else {
-		println!("Function {} not found", fname)
+		let output = {
+			let mut src = opt.src;
+			src.set_extension("o");
+			let output = checked_unwrap_option!(src.file_name());
+			checked_unwrap_option!(output.to_str()).to_owned()
+		};
+
+		let isa = {
+			let flag_builder = {
+				let mut fb = settings::builder();
+				checked_unwrap_result!(fb.enable("is_pic"));
+				fb
+			};
+
+			let isa_bulder = checked_unwrap_result!(isa::lookup(triple!("x86_64-unknown-linux-elf")));
+			isa_bulder.finish(settings::Flags::new(flag_builder))
+		};
+
+		let builder =
+			FaerieBuilder::new(isa, output, FaerieTrapCollection::Disabled, cranelift_module::default_libcall_names())
+				.expect("cannot create backend builder");
+		let am = backend::AbstractMachine::<'_, FaerieBackend>::new(&tu, builder);
+
+		let product = am.finish();
+		let file = File::create(product.name()).expect("failed to create output file");
+		product.write(file).expect("failed to write output file");
 	}
 }
 
@@ -83,11 +126,12 @@ mod tests {
 		let tu = frontend::syntax::parse(src.as_str());
 		frontend::semantics::check(&tu);
 
-		let mut am = backend::AbstractMachine::new(&tu);
+		let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+		let mut am = backend::AbstractMachine::<'_, SimpleJITBackend>::new(&tu, builder);
 		// let (_, fptr) = am.compiled_function(fname).unwrap();
-		let fptr = am.compiled_function(fname).unwrap();
+		let (fptr, _) = am.compiled_function(fname).unwrap();
 
-		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn() -> i32>(fptr.as_ptr()) };
+		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn() -> i32>(fptr) };
 		unsafe { fptr() }
 	}
 
@@ -97,11 +141,12 @@ mod tests {
 		let tu = frontend::syntax::parse(src.as_str());
 		frontend::semantics::check(&tu);
 
-		let mut am = backend::AbstractMachine::new(&tu);
+		let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+		let mut am = backend::AbstractMachine::<'_, SimpleJITBackend>::new(&tu, builder);
 		// let (_, fptr) = am.compiled_function(fname).unwrap();
-		let fptr = am.compiled_function(fname).unwrap();
+		let (fptr, _) = am.compiled_function(fname).unwrap();
 
-		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn(i32) -> i32>(fptr.as_ptr()) };
+		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn(i32) -> i32>(fptr) };
 		unsafe { fptr(i) }
 	}
 

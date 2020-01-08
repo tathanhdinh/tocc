@@ -3,6 +3,7 @@
 use std::{
 	cell::RefCell,
 	cmp,
+	collections::HashMap,
 	hint::unreachable_unchecked,
 	i16, i32, i64, i8,
 	marker::PhantomData,
@@ -12,13 +13,18 @@ use std::{
 
 use cranelift::prelude::*;
 use cranelift_codegen::{
-	ir::{entities::StackSlot, Function, Inst},
+	ir::{
+		entities::{FuncRef, SigRef, StackSlot},
+		Function, Inst,
+	},
 	Context,
 };
-use cranelift_module::{FuncId, Linkage};
+use cranelift_module::{FuncId, Linkage, Module, Backend};
+
+use rand::prelude::*;
 
 use crate::{
-	checked_if_let, checked_match, checked_unwrap, error,
+	checked_if_let, checked_match, checked_unwrap_option, checked_unwrap_result,
 	frontend::syntax::{
 		BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration, Declarator, DerivedDeclarator,
 		DoWhileStatement, Expression, ExternalDeclaration, ForStatement, FunctionDeclarator, FunctionDefinition, Identifier,
@@ -29,16 +35,19 @@ use crate::{
 };
 
 use super::support::{
-	evaluate_constant_arithmetic_expression, AggregateIdentifier, AggregateType, ConcreteModule, FunctionIdentifier,
+	evaluate_constant_arithmetic_expression, AggregateIdentifier, AggregateType, JitModule, FunctionIdentifier,
 	FunctionType, NameBindingEnvironment, PointerIdentifer, PrimitiveIdentifier, SimpleConcreteType, SimpleType,
 	SimpleTypedIdentifier, TypeBindingEnvironment,
 };
 
 static NEW_VAR_ID: AtomicUsize = AtomicUsize::new(0);
 
-struct FunctionTranslator<'clif, 'tcx> {
+struct FunctionTranslator<'clif, 'tcx, B: Backend> {
 	pub func_builder: RefCell<FunctionBuilder<'clif>>,
-	module: &'clif mut ConcreteModule,
+	module: &'clif mut Module<B>,
+	func_id: FuncId,
+	func_ref: FuncRef,
+	imported_sigs: RefCell<HashMap<Signature, SigRef>>,
 	name_env: NameBindingEnvironment<'tcx>,
 	type_env: TypeBindingEnvironment<'tcx>,
 	pointer_ty: Type,
@@ -46,7 +55,7 @@ struct FunctionTranslator<'clif, 'tcx> {
 }
 
 pub fn translate_function<'clif, 'tcx>(
-	func_def: &'tcx FunctionDefinition<'tcx>, ctxt: &'clif mut Context, module: &'clif mut ConcreteModule,
+	func_def: &'tcx FunctionDefinition<'tcx>, ctxt: &'clif mut Context, module: &'clif mut Module<impl Backend>,
 	name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ mut TypeBindingEnvironment<'tcx>,
 ) -> (FuncId, usize) {
 	use SimpleType::*;
@@ -72,7 +81,7 @@ pub fn translate_function<'clif, 'tcx>(
 	// function signature: param type
 	let mut param_ty = Vec::new();
 	for Declaration { specifier, declarator } in parameters {
-		let Declarator { derived, .. } = checked_unwrap!(declarator.as_ref());
+		let Declarator { derived, .. } = checked_unwrap_option!(declarator.as_ref());
 		if let Some(derived_decl) = derived {
 			match derived_decl {
 				// some pointer types
@@ -98,7 +107,7 @@ pub fn translate_function<'clif, 'tcx>(
 		}
 	}
 
-	let func_id = module.declare_function(fname, Linkage::Export, &ctxt.func.signature).expect("failed to declare function");
+	let func_id = checked_unwrap_result!(module.declare_function(fname, Linkage::Export, &ctxt.func.signature));
 
 	name_env.insert(
 		fname,
@@ -116,7 +125,7 @@ pub fn translate_function<'clif, 'tcx>(
 	func_builder.switch_to_block(entry_ebb);
 
 	for (i, Declaration { declarator, specifier }) in parameters.iter().enumerate() {
-		let Declarator { ident: Identifier(var_name), derived, .. } = checked_unwrap!(declarator.as_ref()); // checked in syntax analysis
+		let Declarator { ident: Identifier(var_name), derived, .. } = checked_unwrap_option!(declarator.as_ref()); // checked in syntax analysis
 		let param_val = func_builder.ebb_params(entry_ebb)[i];
 
 		match specifier {
@@ -156,7 +165,7 @@ pub fn translate_function<'clif, 'tcx>(
 						DerivedDeclarator::Pointer => {
 							let new_var = declare_variable(&mut func_builder, pointer_ty, Some(param_val));
 
-							let aggre_ty = checked_unwrap!(type_env.get(sname));
+							let aggre_ty = checked_unwrap_option!(type_env.get(sname));
 
 							name_env.insert(
 								var_name,
@@ -177,11 +186,24 @@ pub fn translate_function<'clif, 'tcx>(
 		}
 	}
 
-	func_builder.seal_block(entry_ebb);
 
-	let mut func_translator = FunctionTranslator::new(func_builder, module, return_ty, name_env, type_env);
+	let body_ebb = func_builder.create_ebb();
+	func_builder.ins().jump(body_ebb, &[]);
+	func_builder.seal_block(entry_ebb);
+	func_builder.switch_to_block(body_ebb);
+	func_builder.seal_block(body_ebb);
+
+	// for _ in func_builder.func.layout.ebbs() {
+	// 	println!("ebb");
+	// }
+	// let entry_ebb = checked_unwrap_option!(func_builder.func.layout.entry_block());
+	// println!("ok");
+
+	let mut func_translator = FunctionTranslator::new(func_builder, module, func_id, return_ty, name_env, type_env);
+	func_translator.blur_signature();
 	func_translator.translate_statement(body);
 	func_translator.func_builder.get_mut().finalize();
+	println!("{:?}", func_translator.func_builder.borrow().func);
 
 	let func_len = module.define_function(func_id, ctxt).expect("failed to define function");
 	// let func = ctxt.func.clone();
@@ -205,29 +227,103 @@ fn declare_variable(func_builder: &'_ mut FunctionBuilder, ty: Type, init_val: O
 	new_var
 }
 
-impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
+impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	pub fn new(
-		func_builder: FunctionBuilder<'clif>, module: &'clif mut ConcreteModule, return_ty: Option<Type>,
+		func_builder: FunctionBuilder<'clif>, module: &'clif mut Module<B>, func_id: FuncId, return_ty: Option<Type>,
 		outer_name_env: &'_ NameBindingEnvironment<'tcx>, outer_type_env: &'_ TypeBindingEnvironment<'tcx>,
 	) -> Self {
-		let func_builder = RefCell::new(func_builder);
+		let mut func_builder = RefCell::new(func_builder);
 		let pointer_ty = module.target_config().pointer_type();
+		let func_ref = module.declare_func_in_func(func_id, func_builder.get_mut().func);
 
-		let name_env = outer_name_env.clone();
-		let type_env = outer_type_env.clone();
+		// let name_env = outer_name_env.clone();
+		// let type_env = outer_type_env.clone();
 
-		Self { func_builder, module, name_env, type_env, pointer_ty, return_ty }
+		Self {
+			func_builder,
+			module,
+			func_id,
+			func_ref,
+			imported_sigs: RefCell::new(HashMap::new()),
+			name_env: outer_name_env.clone(),
+			type_env: outer_type_env.clone(),
+			pointer_ty,
+			return_ty,
+		}
 	}
 
-	fn blur_signature(&mut self) {
+	pub fn blur_signature(&'_ mut self) {
 		let call_conv = isa::CallConv::SystemV;
+		let param_vals = {
+			let entry_ebb = checked_unwrap_option!(self.func_builder.borrow().func.layout.entry_block());
+			self.func_builder.borrow().ebb_params(entry_ebb).to_owned()
+		};
 
-		let entry_ebb = checked_unwrap!(self.func_builder.borrow().func.layout.entry_block());
-		let param_values = self.func_builder.borrow().ebb_params(entry_ebb);
+		for pval in param_vals {
+			let sig = Signature {
+				params: vec![AbiParam::new(self.value_type(pval)), AbiParam::new(self.pointer_ty)],
+				returns: if let Some(return_ty) = self.return_ty { vec![AbiParam::new(return_ty)] } else { vec![] },
+				call_conv,
+			};
+			let sigref = self.import_signature(&sig);
 
-		let sig = Signature {
+			// let self_func = self.module.declare_func_in_func(self.func_id, self.func_builder.get_mut().func);
+			// let faddr = self.func_addr(self_func);
+			// let faddr = self.self_func_addr();
+			let faddr = self.func_addr(self.func_ref);
 
+			// opaque predicate: x != y
+			let pval2 = self.imul(pval, pval);
+			let x = self.iadd_imm(pval2, 1); // x^2 + 2
+			let y = self.imul(pval, pval2); // x^3
+
+			let merge_ebb = self.new_ebb();
+			let never_ebb = self.new_ebb();
+			let x = self.cast_value(self.pointer_ty, x);
+			let y = self.cast_value(self.pointer_ty, y);
+			self.insert_br_icmp(IntCC::NotEqual, x, y, merge_ebb);
+			self.insert_jmp(never_ebb);
+
+			self.switch_to_ebb(never_ebb);
+			let func = self.cast_value(self.pointer_ty, pval);
+			self.insert_indirect_call(sigref, func, &[pval, faddr]);
+			self.insert_jmp(merge_ebb);
+			self.seal_ebb(never_ebb);
+
+			self.switch_to_ebb(merge_ebb);
+			self.seal_ebb(merge_ebb);
 		}
+	}
+
+	fn blur_value(&'_ self, val: Value) -> Value {
+		let val_ty = self.value_type(val);
+		let val_size = val_ty.bytes();
+		let ss = self.create_stack_slot(val_size as _);
+		self.stack_store(val, ss, 0);
+
+		let blur_ss = self.create_stack_slot(val_size as _);
+		let byte_indexes = {
+			let mut rng = rand::thread_rng();
+			let mut byte_indexes: Vec<_> = (0..val_size).collect();
+			byte_indexes.shuffle(&mut rng);
+			byte_indexes
+		};
+		for idx in byte_indexes {
+			let v = self.stack_load(types::I8, ss, idx as i32);
+			self.stack_store(v, blur_ss, idx as i32);
+		}
+
+		self.stack_load(val_ty, blur_ss, 0)
+	}
+
+	fn blur_def_var(&'_ self, var: Variable, val: Value) {
+		let val = self.blur_value(val);
+		self.def_var(var, val)
+	}
+
+	fn blur_use_var(&'_ self, var: Variable) -> Value {
+		let val = self.use_var(var);
+		self.blur_value(val)
 	}
 
 	fn translate_declaration(&mut self, Declaration { specifier, declarator }: &'_ Declaration<'tcx>) {
@@ -238,7 +334,8 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 
 		match specifier {
 			CharTy | ShortTy | IntTy | LongTy | VoidTy => {
-				let Declarator { ident: Identifier(var_name), derived, initializer } = checked_unwrap!(declarator.as_ref());
+				let Declarator { ident: Identifier(var_name), derived, initializer } =
+					checked_unwrap_option!(declarator.as_ref());
 
 				let new_var;
 				let new_var_ty;
@@ -289,9 +386,10 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 				let StructType { identifier: Identifier(sname), declarations } = struct_ty;
 				if declarations.is_some() {
 					let struct_ty: AggregateType = struct_ty.into();
-					let struct_data = StackSlotData::new(StackSlotKind::ExplicitSlot, struct_ty.bytes() as _);
+					// let struct_data = StackSlotData::new(StackSlotKind::ExplicitSlot, struct_ty.bytes() as _);
 
-					let stack_slot = Self::create_stack_slot(self, struct_data);
+					// let stack_slot = Self::create_stack_slot(self, struct_data);
+					let stack_slot = self.create_stack_slot(struct_ty.bytes());
 					if let Some(Declarator { ident: Identifier(var_name), .. }) = declarator {
 						self.name_env.insert(
 							var_name,
@@ -306,7 +404,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 				}
 
 				if let Some(Declarator { ident: Identifier(var_name), derived, .. }) = declarator {
-					let struct_simple_ty = checked_unwrap!(self.type_env.get(sname));
+					let struct_simple_ty = checked_unwrap_option!(self.type_env.get(sname));
 					let struct_simple_ty = struct_simple_ty.to_owned();
 
 					if let Some(derived_decl) = derived {
@@ -323,11 +421,12 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 							}
 						}
 					} else {
-						let struct_data = checked_if_let!(AggregateTy(struct_ty), &struct_simple_ty, {
-							StackSlotData::new(StackSlotKind::ExplicitSlot, struct_ty.bytes() as _)
+						let struct_len = checked_if_let!(AggregateTy(struct_ty), &struct_simple_ty, {
+							// StackSlotData::new(StackSlotKind::ExplicitSlot, struct_ty.bytes() as _)
+							struct_ty.bytes()
 						});
 
-						let stack_slot = self.create_stack_slot(struct_data);
+						let stack_slot = self.create_stack_slot(struct_len);
 						self.name_env.insert(
 							var_name,
 							AggregateIdent(AggregateIdentifier { ident: stack_slot, ty: struct_simple_ty }),
@@ -392,6 +491,17 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 
 		self.switch_to_ebb(exit_ebb);
 		self.seal_ebb(exit_ebb);
+	}
+
+	fn translate_compound_statements(&'_ mut self, stmts: &'_ [Statement<'tcx>]) {
+		let original_name_env = self.name_env.clone();
+		let original_type_env = self.type_env.clone();
+
+		for stmt in stmts {
+			self.translate_statement(stmt);
+		}
+		self.name_env = original_name_env;
+		self.type_env = original_type_env;
 	}
 
 	fn translate_statement(&mut self, stmt: &'_ Statement<'tcx>) {
@@ -477,7 +587,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 			ReturnStmt(expr) => {
 				if let Some(expr) = expr {
 					let val = self.translate_expression(expr);
-					let return_ty = checked_unwrap!(self.return_ty);
+					let return_ty = checked_unwrap_option!(self.return_ty);
 					let val = match val {
 						ConstantTy(c) => self.iconst(return_ty, c),
 						ValueTy(v) => v,
@@ -485,20 +595,23 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 						_ => unsafe { unreachable_unchecked() },
 					};
 
-					self.func_builder.borrow_mut().ins().return_(&[val]);
+					// self.func_builder.borrow_mut().ins().return_(&[val]);
+					self.insert_return(&val);
 				}
 			}
 
-			CompoundStmt(stmts) => {
-				let original_name_env = self.name_env.clone();
-				let original_type_env = self.type_env.clone();
+			CompoundStmt(stmts) => self.translate_compound_statements(stmts.as_slice()),
 
-				for stmt in stmts {
-					self.translate_statement(stmt);
-				}
-				self.name_env = original_name_env;
-				self.type_env = original_type_env;
-			}
+			// CompoundStmt(stmts) => {
+			// 	let original_name_env = self.name_env.clone();
+			// 	let original_type_env = self.type_env.clone();
+
+			// 	for stmt in stmts {
+			// 		self.translate_statement(stmt);
+			// 	}
+			// 	self.name_env = original_name_env;
+			// 	self.type_env = original_type_env;
+			// }
 
 			ExpressionStmt(expr) => {
 				if let Some(expr) = expr {
@@ -538,7 +651,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 			// e.g. ++i
 			PreIncrement => checked_if_let!(IdentifierExpr(var_name), operand.as_ref(), {
 				let var_name: &str = var_name.into();
-				let ident_var = checked_unwrap!(self.name_env.get(var_name));
+				let ident_var = checked_unwrap_option!(self.name_env.get(var_name));
 				checked_if_let!(PrimitiveIdent(PrimitiveIdentifier { ident, .. }), ident_var, {
 					let ident_val = self.use_var(*ident);
 					let ident_new_val = self.iadd_imm(ident_val, 1);
@@ -550,7 +663,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 			// e.g. i++
 			PostIncrement => checked_if_let!(IdentifierExpr(var_name), operand.as_ref(), {
 				let var_name: &str = var_name.into();
-				let ident_var = checked_unwrap!(self.name_env.get(var_name));
+				let ident_var = checked_unwrap_option!(self.name_env.get(var_name));
 				checked_if_let!(PrimitiveIdent(PrimitiveIdentifier { ident, .. }), ident_var, {
 					let ident_val = self.use_var(*ident);
 					let ident_new_val = self.iadd_imm(ident_val, 1);
@@ -562,7 +675,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 			Address => match operand.as_ref() {
 				IdentifierExpr(ident) => {
 					let var_name: &str = ident.into();
-					let typed_ident = checked_unwrap!(self.name_env.get(var_name));
+					let typed_ident = checked_unwrap_option!(self.name_env.get(var_name));
 					match typed_ident {
 						AggregateIdent(AggregateIdentifier { ident, .. }) => {
 							ValueTy(self.stack_addr(self.pointer_ty, *ident, 0))
@@ -578,12 +691,12 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 						IdentifierExpr(struct_name) => {
 							let field_name: &str = identifier.into();
 							let struct_name: &str = struct_name.into();
-							let typed_ident = checked_unwrap!(self.name_env.get(struct_name));
+							let typed_ident = checked_unwrap_option!(self.name_env.get(struct_name));
 							match typed_ident {
 								// e.g. s.i
 								AggregateIdent(AggregateIdentifier { ident, ty: AggregateTy(aggre_ty) }) => {
 									checked_match!(operator, Direct, {
-										let offset = checked_unwrap!(aggre_ty.field_offset(field_name));
+										let offset = checked_unwrap_option!(aggre_ty.field_offset(field_name));
 										ValueTy(self.stack_addr(self.pointer_ty, *ident, offset as i32))
 									})
 								}
@@ -592,7 +705,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 								PointerIdent(PointerIdentifer { ident, ty }) => checked_match!(operator, Indirect, {
 									checked_match!(ty, AggregateTy(aggre_ty), {
 										let ident_addr = self.use_var(*ident);
-										let offset = checked_unwrap!(aggre_ty.field_offset(field_name));
+										let offset = checked_unwrap_option!(aggre_ty.field_offset(field_name));
 										ValueTy(self.iadd_imm(ident_addr, offset as i64))
 									})
 								}),
@@ -685,7 +798,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 				Assignment | AdditionAssignment | SubtractionAssignment | MultiplicationAssignment | DivisionAssignment => {
 					match lhs.as_ref() {
 						IdentifierExpr(Identifier(var_name)) => {
-							let lhs_var = checked_unwrap!(self.name_env.get(var_name));
+							let lhs_var = checked_unwrap_option!(self.name_env.get(var_name));
 							checked_if_let!(PrimitiveIdent(PrimitiveIdentifier { ident, .. }), lhs_var, {
 								let lhs_ty = Self::value_type(self, lhs_val);
 								let new_lhs_val = match operator {
@@ -705,13 +818,13 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 
 						MemberExpr(MemberExpression { expression, identifier: Identifier(field_name), operator }) => {
 							checked_match!(expression.as_ref(), IdentifierExpr(Identifier(var_name)), {
-								let typed_ident = checked_unwrap!(self.name_env.get(var_name));
+								let typed_ident = checked_unwrap_option!(self.name_env.get(var_name));
 								match typed_ident {
 									// e.g. s.x
 									AggregateIdent(AggregateIdentifier { ident, ty: AggregateTy(aggre_ty) }) => {
 										checked_match!(operator, Direct, {
-											let field_offset = checked_unwrap!(aggre_ty.field_offset(field_name));
-											let field_ty = checked_unwrap!(aggre_ty.field_type(field_name));
+											let field_offset = checked_unwrap_option!(aggre_ty.field_offset(field_name));
+											let field_ty = checked_unwrap_option!(aggre_ty.field_type(field_name));
 											let rhs_val = self.iconst(field_ty, rhs_val);
 											self.stack_store(rhs_val, *ident, field_offset as i32);
 										});
@@ -722,8 +835,9 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 										checked_match!(operator, Indirect, {
 											checked_match!(ty, PointerTy(pty), {
 												checked_match!(pty.as_ref(), AggregateTy(aggre_ty), {
-													let field_offset = checked_unwrap!(aggre_ty.field_offset(field_name));
-													let field_ty = checked_unwrap!(aggre_ty.field_type(field_name));
+													let field_offset =
+														checked_unwrap_option!(aggre_ty.field_offset(field_name));
+													let field_ty = checked_unwrap_option!(aggre_ty.field_type(field_name));
 													let ident_val = self.use_var(*ident);
 													let rhs_val = self.iconst(field_ty, rhs_val);
 													self.store(rhs_val, ident_val, field_offset as i32);
@@ -759,7 +873,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 				Assignment | AdditionAssignment | SubtractionAssignment | MultiplicationAssignment | DivisionAssignment => {
 					match lhs.as_ref() {
 						IdentifierExpr(Identifier(var_name)) => {
-							let lhs_var = checked_unwrap!(self.name_env.get(var_name));
+							let lhs_var = checked_unwrap_option!(self.name_env.get(var_name));
 							checked_if_let!(PrimitiveIdent(PrimitiveIdentifier { ident, .. }), lhs_var, {
 								let new_lhs_val = match operator {
 									Assignment => rhs_val,
@@ -769,18 +883,19 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 									DivisionAssignment => self.idiv(lhs_val, rhs_val),
 									_ => unsafe { unreachable_unchecked() },
 								};
-								Self::def_var(self, *ident, new_lhs_val);
+								// self.def_var(*ident, new_lhs_val);
+								self.blur_def_var(*ident, new_lhs_val);
 							});
 						}
 
 						MemberExpr(MemberExpression { expression, identifier: Identifier(field_name), operator }) => {
 							checked_match!(expression.as_ref(), IdentifierExpr(Identifier(var_name)), {
-								let typed_ident = checked_unwrap!(self.name_env.get(var_name));
+								let typed_ident = checked_unwrap_option!(self.name_env.get(var_name));
 								match typed_ident {
 									// e.g. s.x
 									AggregateIdent(AggregateIdentifier { ident, ty: AggregateTy(aggre_ty) }) => {
 										checked_match!(operator, Direct, {
-											let field_offset = checked_unwrap!(aggre_ty.field_offset(field_name));
+											let field_offset = checked_unwrap_option!(aggre_ty.field_offset(field_name));
 											// let field_ty = checked_unwrap!(aggre_ty.field_type(field_name));
 											// let rhs_val = self.iconst(self, field_ty, rhs_val);
 											self.stack_store(rhs_val, *ident, field_offset as i32);
@@ -792,7 +907,8 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 										checked_match!(operator, Indirect, {
 											checked_match!(ty, PointerTy(pty), {
 												checked_match!(pty.as_ref(), AggregateTy(aggre_ty), {
-													let field_offset = checked_unwrap!(aggre_ty.field_offset(field_name));
+													let field_offset =
+														checked_unwrap_option!(aggre_ty.field_offset(field_name));
 													// let field_ty = checked_unwrap!(aggre_ty.field_type(field_name));
 													let ident_val = self.use_var(*ident);
 													// let rhs_val = Self::iconst(self, field_ty, rhs_val);
@@ -816,7 +932,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 
 			(StackSlotTy(_lhs_ss), StackSlotTy(_rhs_ss)) => match operator {
 				Assignment => {
-					// zone for obfuscator
+					// zone for blurring
 					todo!()
 				}
 
@@ -837,13 +953,13 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 		use SimpleTypedIdentifier::*;
 
 		if let IdentifierExpr(Identifier(var_name)) = expression.as_ref() {
-			let typed_ident = checked_unwrap!(self.name_env.get(var_name));
+			let typed_ident = checked_unwrap_option!(self.name_env.get(var_name));
 			match typed_ident {
 				// e.g. s.i
 				AggregateIdent(AggregateIdentifier { ident, ty: AggregateTy(aggre_ty) }) => {
 					checked_match!(operator, Direct, {
-						let offset = checked_unwrap!(aggre_ty.field_offset(field_name));
-						let (_, ty) = checked_unwrap!(aggre_ty.fields.iter().find(|(fname, _)| fname == field_name));
+						let offset = checked_unwrap_option!(aggre_ty.field_offset(field_name));
+						let (_, ty) = checked_unwrap_option!(aggre_ty.fields.iter().find(|(fname, _)| fname == field_name));
 						ValueTy(Self::stack_load(self, *ty, *ident, offset as i32))
 					})
 				}
@@ -853,11 +969,12 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 					checked_match!(operator, Indirect, {
 						checked_match!(ty, PointerTy(pty), {
 							checked_match!(pty.as_ref(), AggregateTy(aggre_ty), {
-								// Simplifcation: assume no struct alignment
+								// Simplification: assume no struct alignment
 								// C11 Standard 6.7.2.1 Structure and union specifiers
-								let offset = checked_unwrap!(aggre_ty.field_offset(field_name));
+								let offset = checked_unwrap_option!(aggre_ty.field_offset(field_name));
 
-								let (_, ty) = checked_unwrap!(aggre_ty.fields.iter().find(|(fname, _)| fname == field_name));
+								let (_, ty) =
+									checked_unwrap_option!(aggre_ty.fields.iter().find(|(fname, _)| fname == field_name));
 
 								let ident_val = Self::use_var(self, *ident);
 								ValueTy(Self::load(self, *ty, ident_val, offset as i32))
@@ -880,7 +997,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 		use SimpleTypedIdentifier::*;
 
 		// let func_name: &str = callee.into();
-		let func = checked_unwrap!(self.name_env.get(func_name)).clone();
+		let func = checked_unwrap_option!(self.name_env.get(func_name)).clone();
 		match func {
 			FunctionIdent(FunctionIdentifier {
 				ty: SimpleType::FunctionTy(FunctionType { return_ty, param_ty }), ..
@@ -893,8 +1010,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 					sig.params.push(AbiParam::new(*pty)); // parameter types
 				}
 
-				let callee =
-					self.module.declare_function(func_name, Linkage::Import, &sig).expect("failed to declare function");
+				let callee = checked_unwrap_result!(self.module.declare_function(func_name, Linkage::Import, &sig));
 				let local_callee = self.module.declare_func_in_func(callee, self.func_builder.get_mut().func);
 
 				let arg_values: Vec<_> = arguments
@@ -910,10 +1026,12 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 					})
 					.collect();
 
-				let call = self.func_builder.borrow_mut().ins().call(local_callee, &arg_values);
+				// let call = self.func_builder.borrow_mut().ins().call(local_callee, &arg_values);
+				let call = self.insert_call(local_callee, &arg_values);
 
 				if return_ty.is_some() {
-					ValueTy(self.func_builder.borrow_mut().inst_results(call)[0])
+					// ValueTy(self.func_builder.borrow_mut().inst_results(call)[0])
+					ValueTy(self.inst_result(call))
 				} else {
 					UnitTy
 				}
@@ -924,9 +1042,10 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 	}
 
 	fn translate_identifier_expression(&'_ self, Identifier(var_name): &'_ Identifier<'tcx>) -> SimpleConcreteType {
-		let var = checked_unwrap!(self.name_env.get(var_name));
+		let var = checked_unwrap_option!(self.name_env.get(var_name));
 		checked_match!(var, SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier { ident, .. }), {
-			SimpleConcreteType::ValueTy(Self::use_var(self, *ident))
+			// SimpleConcreteType::ValueTy(self.use_var(*ident))
+			SimpleConcreteType::ValueTy(self.blur_use_var(*ident))
 		})
 	}
 
@@ -953,7 +1072,7 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 	}
 
 	fn cast_value(&'_ self, ty: Type, val: Value) -> Value {
-		let val_size = Self::value_type(self, val).bytes();
+		let val_size = self.value_type(val).bytes();
 		let ty_size = ty.bytes();
 		if val_size > ty_size {
 			self.func_builder.borrow_mut().ins().ireduce(ty, val)
@@ -988,8 +1107,9 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 		self.func_builder.borrow_mut().def_var(var, val)
 	}
 
-	fn create_stack_slot(&'_ self, data: StackSlotData) -> StackSlot {
-		self.func_builder.borrow_mut().create_stack_slot(data)
+	fn create_stack_slot(&'_ self, len: usize) -> StackSlot {
+		let ss_data = StackSlotData::new(StackSlotKind::ExplicitSlot, len as _);
+		self.func_builder.borrow_mut().create_stack_slot(ss_data)
 	}
 
 	fn stack_addr(&'_ self, addr_ty: Type, ss: StackSlot, offset: impl Into<i32>) -> Value {
@@ -1064,7 +1184,46 @@ impl<'clif, 'tcx> FunctionTranslator<'clif, 'tcx> {
 		self.func_builder.borrow_mut().ins().brz(cond, ebb, &[])
 	}
 
-	fn insert_jmp(&self, ebb: Ebb) -> Inst {
+	fn insert_br_icmp(&'_ self, cond: impl Into<IntCC>, x: Value, y: Value, ebb: Ebb) -> Inst {
+		self.func_builder.borrow_mut().ins().br_icmp(cond, x, y, ebb, &[])
+	}
+
+	fn insert_jmp(&'_ self, ebb: Ebb) -> Inst {
 		self.func_builder.borrow_mut().ins().jump(ebb, &[])
 	}
+
+	fn insert_call(&'_ self, fref: FuncRef, args: &[Value]) -> Inst {
+		self.func_builder.borrow_mut().ins().call(fref, args)
+	}
+
+	fn insert_indirect_call(&'_ self, sigref: SigRef, callee: Value, args: &[Value]) -> Inst {
+		self.func_builder.borrow_mut().ins().call_indirect(sigref, callee, args)
+	}
+
+	fn insert_return(&'_ self, val: &'_ Value) {
+		self.func_builder.borrow_mut().ins().return_(&[val.to_owned()]);
+	}
+
+	fn inst_result(&'_ self, inst: Inst) -> Value {
+		self.func_builder.borrow().inst_results(inst)[0]
+	}
+
+	fn import_signature(&'_ self, fsig: &'_ Signature) -> SigRef {
+		if self.imported_sigs.borrow().contains_key(fsig) {
+			checked_unwrap_option!(self.imported_sigs.borrow().get(fsig)).to_owned()
+		} else {
+			let fsigref = self.func_builder.borrow_mut().import_signature(fsig.to_owned());
+			self.imported_sigs.borrow_mut().insert(fsig.to_owned(), fsigref);
+			fsigref
+		}
+	}
+
+	fn func_addr(&'_ self, fref: FuncRef) -> Value {
+		self.func_builder.borrow_mut().ins().func_addr(self.pointer_ty, fref)
+	}
+
+	// fn self_func_addr(&'_ self) -> Value {
+	// 	// let self_func = self.module.declare_func_in_func(self.func_id, self.func_builder.get_mut().func);
+	// 	self.func_addr(self.func_ref)
+	// }
 }

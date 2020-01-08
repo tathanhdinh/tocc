@@ -7,10 +7,10 @@ use std::{
 
 use cranelift::prelude::*;
 use cranelift_codegen::{ir::Function, Context};
-use cranelift_module::{FuncId, Linkage};
+use cranelift_module::{FuncId, Linkage, Module, Backend};
 
 use crate::{
-	checked_if_let, checked_match, checked_unwrap, error,
+	checked_if_let, checked_match, checked_unwrap_option, error,
 	frontend::syntax::{
 		BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration,
 		Declarator, DerivedDeclarator, DoWhileStatement, Expression, ExternalDeclaration,
@@ -25,7 +25,7 @@ use super::{
 	function::translate_function,
 	support::{
 		evaluate_constant_arithmetic_expression, AggregateIdentifier, AggregateType,
-		ConcreteModule, FunctionIdentifier, FunctionType, NameBindingEnvironment, PointerIdentifer,
+		JitModule, FunctionIdentifier, FunctionType, NameBindingEnvironment, PointerIdentifer,
 		PrimitiveIdentifier, SimpleType, SimpleTypedIdentifier, TypeBindingEnvironment,
 	},
 };
@@ -48,7 +48,7 @@ fn type_cast_value<'clif>(val: Value, ty: Type, func_builder: &'clif mut Functio
 
 fn translate_in_function_expression<'clif, 'tcx>(
 	expr: &'tcx Expression, type_hint: Option<Type>, func_builder: &'clif mut FunctionBuilder,
-	bm: &'clif mut ConcreteModule, name_env: &'_ NameBindingEnvironment<'tcx>,
+	bm: &'clif mut JitModule, name_env: &'_ NameBindingEnvironment<'tcx>,
 	type_env: &'_ TypeBindingEnvironment<'tcx>,
 ) -> Value {
 	use BinaryOperator::*;
@@ -79,7 +79,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 
 				PreIncrement => checked_if_let!(IdentifierExpr(var_name), operand.as_ref(), {
 					let var_name: &str = var_name.into();
-					let ident_var = checked_unwrap!(name_env.get(var_name));
+					let ident_var = checked_unwrap_option!(name_env.get(var_name));
 					checked_if_let!(
 						PrimitiveIdent(PrimitiveIdentifier { ident, ty: PrimitiveTy(ident_ty) }),
 						ident_var,
@@ -95,7 +95,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 
 				PostIncrement => checked_if_let!(IdentifierExpr(var_name), operand.as_ref(), {
 					let var_name: &str = var_name.into();
-					let ident_var = checked_unwrap!(name_env.get(var_name));
+					let ident_var = checked_unwrap_option!(name_env.get(var_name));
 					checked_if_let!(
 						PrimitiveIdent(PrimitiveIdentifier { ident, ty: PrimitiveTy(ident_ty) }),
 						ident_var,
@@ -114,7 +114,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 					match operand.as_ref() {
 						IdentifierExpr(ident) => {
 							let var_name: &str = ident.into();
-							let typed_ident = checked_unwrap!(name_env.get(var_name));
+							let typed_ident = checked_unwrap_option!(name_env.get(var_name));
 							match typed_ident {
 								AggregateIdent(AggregateIdentifier { ident, .. }) => {
 									func_builder.ins().stack_addr(pointer_ty, *ident, 0)
@@ -130,7 +130,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 								IdentifierExpr(struct_name) => {
 									let field_name: &str = identifier.into();
 									let struct_name: &str = struct_name.into();
-									let typed_ident = checked_unwrap!(name_env.get(struct_name));
+									let typed_ident = checked_unwrap_option!(name_env.get(struct_name));
 									match typed_ident {
 										// e.g. s.i
 										AggregateIdent(AggregateIdentifier {
@@ -138,7 +138,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 											ty: AggregateTy(aggre_ty),
 										}) => checked_match!(operator, Direct, {
 											let offset =
-												checked_unwrap!(aggre_ty.field_offset(field_name));
+												checked_unwrap_option!(aggre_ty.field_offset(field_name));
 											func_builder.ins().stack_addr(
 												pointer_ty,
 												*ident,
@@ -151,7 +151,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 											checked_match!(operator, Indirect, {
 												checked_match!(ty, AggregateTy(aggre_ty), {
 													let ident_addr = func_builder.use_var(*ident);
-													let offset = checked_unwrap!(
+													let offset = checked_unwrap_option!(
 														aggre_ty.field_offset(field_name)
 													);
 													let offset = func_builder
@@ -283,7 +283,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 		}
 
 		IdentifierExpr(Identifier(var_name)) => {
-			let var = checked_unwrap!(name_env.get(var_name));
+			let var = checked_unwrap_option!(name_env.get(var_name));
 			checked_if_let!(
 				SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier { ident, .. }),
 				var,
@@ -298,13 +298,13 @@ fn translate_in_function_expression<'clif, 'tcx>(
 			operator,
 		}) => {
 			if let IdentifierExpr(Identifier(var_name)) = expression.as_ref() {
-				let typed_ident = checked_unwrap!(name_env.get(var_name));
+				let typed_ident = checked_unwrap_option!(name_env.get(var_name));
 				match typed_ident {
 					// e.g. s.i
 					AggregateIdent(AggregateIdentifier { ident, ty: AggregateTy(aggre_ty) }) => {
 						checked_match!(operator, Direct, {
-							let offset = checked_unwrap!(aggre_ty.field_offset(field_name));
-							let (_, ty) = checked_unwrap!(aggre_ty
+							let offset = checked_unwrap_option!(aggre_ty.field_offset(field_name));
+							let (_, ty) = checked_unwrap_option!(aggre_ty
 								.fields
 								.iter()
 								.find(|(fname, _)| fname == field_name));
@@ -319,9 +319,9 @@ fn translate_in_function_expression<'clif, 'tcx>(
 								checked_match!(pty.as_ref(), AggregateTy(aggre_ty), {
 									// Simplifcation: assume no struct alignment
 									// C11 Standard 6.7.2.1 Structure and union specifiers
-									let offset = checked_unwrap!(aggre_ty.field_offset(field_name));
+									let offset = checked_unwrap_option!(aggre_ty.field_offset(field_name));
 
-									let (_, ty) = checked_unwrap!(aggre_ty
+									let (_, ty) = checked_unwrap_option!(aggre_ty
 										.fields
 										.iter()
 										.find(|(fname, _)| fname == field_name));
@@ -347,7 +347,7 @@ fn translate_in_function_expression<'clif, 'tcx>(
 
 		CallExpr(CallExpression { callee, arguments }) => {
 			let func_name: &str = callee.into();
-			let func = checked_unwrap!(name_env.get(func_name));
+			let func = checked_unwrap_option!(name_env.get(func_name));
 			match func {
 				FunctionIdent(FunctionIdentifier {
 					ty: SimpleType::FunctionTy(FunctionType { return_ty, param_ty }),
@@ -411,7 +411,7 @@ fn declare_in_function_new_variable<'clif, 'tcx>(
 
 fn translate_in_function_declaration<'clif, 'tcx>(
 	Declaration { specifier, declarator }: &'tcx Declaration<'tcx>,
-	func_builder: &'clif mut FunctionBuilder, bmod: &'clif mut ConcreteModule,
+	func_builder: &'clif mut FunctionBuilder, bmod: &'clif mut JitModule,
 	name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ mut TypeBindingEnvironment<'tcx>,
 ) {
 	use SimpleType::*;
@@ -425,7 +425,7 @@ fn translate_in_function_declaration<'clif, 'tcx>(
 
 		CharTy | ShortTy | IntTy | LongTy => {
 			let Declarator { ident: Identifier(var_name), derived, initializer } =
-				checked_unwrap!(declarator.as_ref());
+				checked_unwrap_option!(declarator.as_ref());
 
 			let new_var;
 			let new_var_ty;
@@ -503,7 +503,7 @@ fn translate_in_function_declaration<'clif, 'tcx>(
 			}
 
 			if let Some(Declarator { ident: Identifier(var_name), derived, .. }) = declarator {
-				let struct_simple_ty = checked_unwrap!(type_env.get(sname));
+				let struct_simple_ty = checked_unwrap_option!(type_env.get(sname));
 				let struct_simple_ty = struct_simple_ty.to_owned();
 
 				if let Some(derived_decl) = derived {
@@ -545,7 +545,7 @@ fn translate_in_function_declaration<'clif, 'tcx>(
 // E.g. x = 5
 fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 	BinaryOperatorExpression { operator, lhs, rhs }: &'tcx BinaryOperatorExpression<'tcx>,
-	func_builder: &'clif mut FunctionBuilder, cmod: &'clif mut ConcreteModule,
+	func_builder: &'clif mut FunctionBuilder, cmod: &'clif mut JitModule,
 	name_env: &'_ NameBindingEnvironment<'tcx>, type_env: &'_ TypeBindingEnvironment<'tcx>,
 ) {
 	use BinaryOperator::*;
@@ -564,7 +564,7 @@ fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 			match lhs.as_ref() {
 				// e.g. x = 10
 				IdentifierExpr(Identifier(var_name)) => {
-					let lhs_var = checked_unwrap!(name_env.get(var_name));
+					let lhs_var = checked_unwrap_option!(name_env.get(var_name));
 					checked_if_let!(
 						PrimitiveIdent(PrimitiveIdentifier { ident, ty: PrimitiveTy(ty) }),
 						lhs_var,
@@ -608,7 +608,7 @@ fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 					operator,
 				}) => {
 					checked_match!(expression.as_ref(), IdentifierExpr(Identifier(var_name)), {
-						let typed_ident = checked_unwrap!(name_env.get(var_name));
+						let typed_ident = checked_unwrap_option!(name_env.get(var_name));
 						match typed_ident {
 							// e.g. s.x
 							AggregateIdent(AggregateIdentifier {
@@ -617,8 +617,8 @@ fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 							}) => {
 								checked_match!(operator, Direct, {
 									let field_offset =
-										checked_unwrap!(aggre_ty.field_offset(field_name));
-									let field_ty = checked_unwrap!(aggre_ty.field_type(field_name));
+										checked_unwrap_option!(aggre_ty.field_offset(field_name));
+									let field_ty = checked_unwrap_option!(aggre_ty.field_type(field_name));
 									let rhs_val = translate_in_function_expression(
 										rhs.as_ref(),
 										Some(field_ty),
@@ -642,9 +642,9 @@ fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 									checked_match!(ty, PointerTy(pty), {
 										checked_match!(pty.as_ref(), AggregateTy(aggre_ty), {
 											let field_offset =
-												checked_unwrap!(aggre_ty.field_offset(field_name));
+												checked_unwrap_option!(aggre_ty.field_offset(field_name));
 											let field_ty =
-												checked_unwrap!(aggre_ty.field_type(field_name));
+												checked_unwrap_option!(aggre_ty.field_type(field_name));
 											let ident_val = func_builder.use_var(*ident);
 											let rhs_val = translate_in_function_expression(
 												rhs.as_ref(),
@@ -684,7 +684,7 @@ fn translate_in_function_binary_operator_statement_expression<'clif, 'tcx>(
 
 fn translate_in_function_statement_expression<'clif, 'tcx>(
 	expr: &'tcx Expression, func_builder: &'clif mut FunctionBuilder,
-	cmod: &'clif mut ConcreteModule, name_env: &'_ NameBindingEnvironment<'tcx>,
+	cmod: &'clif mut JitModule, name_env: &'_ NameBindingEnvironment<'tcx>,
 	type_env: &'_ TypeBindingEnvironment<'tcx>,
 ) {
 	use Expression::*;
@@ -707,7 +707,7 @@ fn translate_in_function_statement_expression<'clif, 'tcx>(
 
 fn translate_in_function_statement<'clif, 'tcx>(
 	stmt: &'tcx Statement, return_ty: Option<Type>, func_builder: &'clif mut FunctionBuilder,
-	cmod: &'clif mut ConcreteModule, name_env: &'_ mut NameBindingEnvironment<'tcx>,
+	cmod: &'clif mut JitModule, name_env: &'_ mut NameBindingEnvironment<'tcx>,
 	type_env: &'_ mut TypeBindingEnvironment<'tcx>,
 ) {
 	use Statement::*;
@@ -943,7 +943,7 @@ fn translate_in_function_statement<'clif, 'tcx>(
 					name_env,
 					type_env,
 				);
-				let v = type_cast_value(v, checked_unwrap!(return_ty), func_builder);
+				let v = type_cast_value(v, checked_unwrap_option!(return_ty), func_builder);
 				func_builder.ins().return_(&[v]);
 			}
 		}
@@ -956,7 +956,7 @@ fn translate_function_definition<'clif, 'tcx>(
 		declarator: FunctionDeclarator { identifier: Identifier(fname), parameters },
 		body,
 	}: &'tcx FunctionDefinition,
-	ctxt: &'clif mut Context, cmod: &'clif mut ConcreteModule,
+	ctxt: &'clif mut Context, cmod: &'clif mut JitModule,
 	name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ mut TypeBindingEnvironment<'tcx>,
 ) -> (Function, FuncId, usize) {
 	use SimpleType::*;
@@ -980,7 +980,7 @@ fn translate_function_definition<'clif, 'tcx>(
 	// parameter types
 	let mut param_ty = Vec::new();
 	for Declaration { specifier, declarator } in parameters {
-		let Declarator { derived, .. } = checked_unwrap!(declarator.as_ref());
+		let Declarator { derived, .. } = checked_unwrap_option!(declarator.as_ref());
 		if let Some(derived_decl) = derived {
 			match derived_decl {
 				// parameter is some pointer
@@ -1042,7 +1042,7 @@ fn translate_function_definition<'clif, 'tcx>(
 	// declare parameters
 	for (i, Declaration { declarator, specifier }) in parameters.iter().enumerate() {
 		let Declarator { ident: Identifier(var_name), derived, .. } =
-			checked_unwrap!(declarator.as_ref()); // checked in syntax analysis
+			checked_unwrap_option!(declarator.as_ref()); // checked in syntax analysis
 		let param_val = func_builder.ebb_params(entry_ebb)[i];
 
 		match specifier {
@@ -1094,7 +1094,7 @@ fn translate_function_definition<'clif, 'tcx>(
 								&mut func_builder,
 							);
 
-							let aggre_ty = checked_unwrap!(type_env.get(sname));
+							let aggre_ty = checked_unwrap_option!(type_env.get(sname));
 
 							name_env.insert(
 								var_name,
@@ -1135,15 +1135,15 @@ fn translate_function_definition<'clif, 'tcx>(
 	(ctxt.func.clone(), function_id, function_len as _)
 }
 
-pub fn compiled_function<'clif>(
-	fid: FuncId, flen: usize, module: &'clif mut ConcreteModule,
+pub fn jitted_function<'clif>(
+	fid: FuncId, flen: usize, module: &'clif mut JitModule,
 ) -> &'clif [u8] {
 	let fptr = module.get_finalized_function(fid);
 	unsafe { slice::from_raw_parts(mem::transmute::<_, *const u8>(fptr), flen as _) }
 }
 
 pub fn compile<'clif, 'tcx>(
-	tu: &'tcx TranslationUnit, module: &'clif mut ConcreteModule,
+	tu: &'tcx TranslationUnit, module: &'clif mut Module<impl Backend>,
 	name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ mut TypeBindingEnvironment<'tcx>,
 ) -> Vec<(FuncId, usize)> {
 	use ExternalDeclaration::*;

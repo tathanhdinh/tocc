@@ -84,11 +84,11 @@ decompilation) or static binary rewriting/instrumentation, just to name a few.
 Type reconstruction is available in several binary analysis
 tools~\cite{noauthor_hex-rays_nodate, noauthor_jeb_nodate, noauthor_ghidra_nodate}
 as a result of machine code decompilation. Academic research includes~\cite{mycroft_type-based_1999}
-which is one of the pilot papers on this domain, an improvement supporting
+which was probably the pilot paper on the domain, an extension supporting
 a limited form of subtyping is presented in~\cite{lee_tie_2011}, a survey of
-research up until 2016 is given in~\cite{caballero_type_2016}. One of recent
-directions is to use machine learning~\cite{maier_typeminer_2019}, which is out of scope of
-the paper. All approaches tend to output a C-like type system.
+research up until 2015 is given in~\cite{caballero_type_2016}. Recent
+directions are using machine learning~\cite{maier_typeminer_2019} or statistical
+language model~\cite{katz_estimating_2016}. All approaches tend to output a C-like type system.
 
 Basically, the type inference starts by detecting high-level variables from
 machine-dependent primitives: local variables are stored in function stack frame,
@@ -96,15 +96,23 @@ parameters are passed from registers, see~\cite{balakrishnan_wysinwyx_2007} for 
 Type constraints are generated then through the use of these variables. Finally,
 the constraints are solved, each variable is annotated with a type given by the solver.
 
-Though most papers agree that type information is removed in compilation~\cite{lee_tie_2011,caballero_type_2016,lin_automatic_2010},
-there is no explicit explication of \emph{why and how} some type information is not needed
-(so removed) in machine codes. A popular point of view that types should attach with
-storage specific primitives (e.g. \texttt{int} is some \texttt{32-bit} signed integer
-stored in a register or stack), though mostly correct, does not reveal the nature of
-types. This is one of the reasons why some researchers unify data structure reverse
-engineering with type reconstruction~\cite{caballero_type_2016, caballero_polyglot_2007}.
-In some languages other than C, types can be zero-sized~\cite{noauthor_phantom_nodate}, another example is
-\emph{regions}~\cite{grossman_region-based_2002} which have no storage imprint.
+This bird view about binary code type reconstruction may give an impression that the
+research domain has been well established already, the incorrectness comes from foreign
+reasons: binary code disassembly, high-level variable detection, etc.
+But there are more intrinsic problems, as we claim below.
+
+\emph{First}, there is a common agreement that type information is removed through compilation~\cite{lee_tie_2011,caballero_type_2016,lin_automatic_2010},
+but there is no explicit explication of why and how some type information is not needed
+(so removed) in machine codes, actually not all type information can be restored.
+
+\emph{Second}, while some researchers unify data structure reverse engineering with
+type reconstruction~\cite{caballero_type_2016, caballero_polyglot_2007}, types do not
+always attach with storage specific primitives (e.g. \texttt{int} is some \texttt{32-bit}
+signed integer stored in a register or stack). The storage-based point of view though
+mostly correct in low-level languages like C, does not reveal the nature of types. In
+some languages other than C, types can be zero-sized~\cite{noauthor_phantom_nodate},
+another example is \emph{regions}~\cite{grossman_region-based_2002} which have no
+storage imprint.
 
 The binary type reconstruction is influenced by \emph{Algorithm W} used originally to
 type check/inference for programs of Hindley-Milner's type system (abbr. HM)~\cite{milner_theory_1978,hindley_principal_1969,cardelli_basic_1987}.
@@ -121,7 +129,7 @@ We first discuss the type information loss in compilation and some cases
 where assigning a high-level \emph{type} for a low-level primitive
 is not possible. Though this part is not novel, we bring it to the context
 of binary code analysis to show limits of type reconstruction. Next, we present
-a C compiler which tries to hide types from reconstruction techniques described
+a proof-of-concept C compiler which tries to hide types from reconstruction techniques described
 in current researches.
 
 \section{Type information loss}

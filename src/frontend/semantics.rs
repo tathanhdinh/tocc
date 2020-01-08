@@ -12,13 +12,13 @@ use std::{
 };
 
 use super::syntax::{
-	BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration, Declarator,
-	DerivedDeclarator, Expression, ExternalDeclaration, FunctionDeclarator, FunctionDefinition,
-	Identifier, IfStatement, Integer, MemberExpression, MemberOperator, Statement, StructType,
-	TranslationUnit, TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
+	BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration, Declarator, DerivedDeclarator,
+	Expression, ExternalDeclaration, FunctionDeclarator, FunctionDefinition, Identifier, IfStatement, Integer,
+	MemberExpression, MemberOperator, Statement, StructType, TranslationUnit, TypeSpecifier, UnaryOperator,
+	UnaryOperatorExpression,
 };
 
-use crate::{checked_if_let, checked_match, checked_unwrap, error, unimpl};
+use crate::{checked_if_let, checked_match, checked_unwrap_option, error, unimpl};
 
 pub struct Environment<'a, K, Ty>
 where
@@ -118,10 +118,7 @@ where
 	T: 'a + Clone,
 {
 	pub fn new() -> Self {
-		Self {
-			env: HashMap::new(),
-			phantom: PhantomData,
-		}
+		Self { env: HashMap::new(), phantom: PhantomData }
 	}
 
 	pub fn inherit(&self) -> Self {
@@ -129,10 +126,7 @@ where
 		for (name, _) in &self.env {
 			inherited_env.get_mut(name).unwrap().rebind = false
 		}
-		Self {
-			env: inherited_env,
-			phantom: PhantomData,
-		}
+		Self { env: inherited_env, phantom: PhantomData }
 	}
 
 	pub fn bind(&mut self, name: K, ty: T) {
@@ -144,10 +138,7 @@ where
 	}
 
 	pub fn get(&self, name: K) -> &T {
-		self.env
-			.get(&name)
-			.map(|BoundedType { ty, .. }| ty)
-			.unwrap_or_else(|| error!("name not found in current scope"))
+		self.env.get(&name).map(|BoundedType { ty, .. }| ty).unwrap_or_else(|| error!("name not found in current scope"))
 	}
 }
 
@@ -220,9 +211,7 @@ impl<'a> SimpleType<'a> {
 	}
 
 	// anything in env is already well-typed, so no need to check again
-	pub fn synthesize_expression(
-		expr: &'_ Expression<'a>, env: &'_ BindingEnvironment<'a>,
-	) -> Self {
+	pub fn synthesize_expression(expr: &'_ Expression<'a>, env: &'_ BindingEnvironment<'a>) -> Self {
 		use BinaryOperator::*;
 		use Expression::*;
 		use MemberOperator::*;
@@ -232,11 +221,7 @@ impl<'a> SimpleType<'a> {
 		match expr {
 			CallExpr(CallExpression { callee, arguments }) => {
 				let QualifiedSimpleType { ty, .. } = env.get(callee.into());
-				if let FunctionTy(FunctionType {
-					return_ty,
-					param_ty,
-				}) = ty
-				{
+				if let FunctionTy(FunctionType { return_ty, param_ty }) = ty {
 					if arguments.len() != param_ty.len() {
 						error!("incorrect number of arguments")
 					} else {
@@ -253,20 +238,14 @@ impl<'a> SimpleType<'a> {
 				}
 			}
 
-			MemberExpr(MemberExpression {
-				expression,
-				identifier,
-				operator,
-			}) => match expression.as_ref() {
+			MemberExpr(MemberExpression { expression, identifier, operator }) => match expression.as_ref() {
 				IdentifierExpr(ident) => {
 					let QualifiedSimpleType { ty, .. } = env.get(ident.into());
 					let field_name: &str = identifier.into();
 					match operator {
 						Direct => match ty {
 							AggregateTy(AggregateType { fields }) => {
-								if let Some((_, fty)) =
-									fields.iter().find(|(fname, _)| *fname == field_name)
-								{
+								if let Some((_, fty)) = fields.iter().find(|(fname, _)| *fname == field_name) {
 									fty.clone()
 								} else {
 									error!("unknown field name in member expression")
@@ -279,9 +258,7 @@ impl<'a> SimpleType<'a> {
 						Indirect => match ty {
 							PointerTy(ty) => match ty.as_ref() {
 								AggregateTy(AggregateType { fields }) => {
-									if let Some((_, fty)) =
-										fields.iter().find(|(fname, _)| *fname == field_name)
-									{
+									if let Some((_, fty)) = fields.iter().find(|(fname, _)| *fname == field_name) {
 										fty.clone()
 									} else {
 										error!("unknown field name in member expression")
@@ -352,32 +329,20 @@ impl<'a> SimpleType<'a> {
 
 				match operator {
 					Multiplication | Division | Addition | Subtraction => {
-						let lhs_ty: PrimitiveType = if let PrimitiveTy(ty) = lhs_ty {
-							ty
-						} else {
-							error!("operator cannot applied on lhs")
-						};
-						let rhs_ty: PrimitiveType = if let PrimitiveTy(ty) = rhs_ty {
-							ty
-						} else {
-							error!("operator cannot applied on rhs")
-						};
+						let lhs_ty: PrimitiveType =
+							if let PrimitiveTy(ty) = lhs_ty { ty } else { error!("operator cannot applied on lhs") };
+						let rhs_ty: PrimitiveType =
+							if let PrimitiveTy(ty) = rhs_ty { ty } else { error!("operator cannot applied on rhs") };
 
 						// type promotion
 						PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
 					}
 
 					Less | LessOrEqual | Greater | GreaterOrEqual | Equal => {
-						let lhs_ty: PrimitiveType = if let PrimitiveTy(ty) = lhs_ty {
-							ty
-						} else {
-							error!("operator cannot applied on lhs")
-						};
-						let rhs_ty: PrimitiveType = if let PrimitiveTy(ty) = rhs_ty {
-							ty
-						} else {
-							error!("operator cannot applied on rhs")
-						};
+						let lhs_ty: PrimitiveType =
+							if let PrimitiveTy(ty) = lhs_ty { ty } else { error!("operator cannot applied on lhs") };
+						let rhs_ty: PrimitiveType =
+							if let PrimitiveTy(ty) = rhs_ty { ty } else { error!("operator cannot applied on rhs") };
 
 						PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
 					}
@@ -398,34 +363,26 @@ impl<'a> SimpleType<'a> {
 		}
 	}
 
-	pub fn from_type_specifier(
-		ty: &'_ TypeSpecifier<'a>, env: &'_ mut TypingEnvironment<'a>,
-	) -> Self {
+	pub fn from_type_specifier(ty: &'_ TypeSpecifier<'a>, env: &'_ mut TypingEnvironment<'a>) -> Self {
 		use TypeSpecifier::*;
 		match ty {
 			VoidTy => Self::UnitTy,
 
 			CharTy | ShortTy | IntTy | LongTy => Self::PrimitiveTy(ty.into()),
 
-			StructTy(StructType {
-				identifier,
-				declarations,
-			}) => {
+			StructTy(StructType { identifier, declarations }) => {
 				if let Some(declarations) = declarations {
 					// new struct definition
 					let fields: Vec<_> = declarations
 						.iter()
 						.map(|decl| {
 							let (fname, fty) = Self::parse_declaration(decl, env, None);
-							(checked_unwrap!(fname), fty)
+							(checked_unwrap_option!(fname), fty)
 						})
 						.collect();
 
 					// let sname = sname.into();
-					env.bind(
-						identifier.into(),
-						Self::AggregateTy(AggregateType { fields }),
-					);
+					env.bind(identifier.into(), Self::AggregateTy(AggregateType { fields }));
 				}
 
 				env.get(identifier.into()).clone()
@@ -434,20 +391,11 @@ impl<'a> SimpleType<'a> {
 	}
 
 	pub fn parse_declaration(
-		decl: &'_ Declaration<'a>, type_env: &'_ mut TypingEnvironment<'a>,
-		bind_env: Option<&'_ BindingEnvironment>,
+		decl: &'_ Declaration<'a>, type_env: &'_ mut TypingEnvironment<'a>, bind_env: Option<&'_ BindingEnvironment>,
 	) -> (Option<&'a str>, Self) {
-		let Declaration {
-			specifier,
-			declarator,
-		} = decl;
+		let Declaration { specifier, declarator } = decl;
 		let base_ty = Self::from_type_specifier(&specifier, type_env);
-		if let Some(Declarator {
-			derived,
-			ident: Identifier(name),
-			initializer,
-		}) = declarator.as_ref()
-		{
+		if let Some(Declarator { derived, ident: Identifier(name), initializer }) = declarator.as_ref() {
 			let ident_ty = if let Some(derived) = derived {
 				match derived {
 					DerivedDeclarator::Pointer => Self::PointerTy(Box::new(base_ty)),
@@ -534,18 +482,10 @@ type NameBindingEnvironment<'a> = HashMap<&'a str, bool>;
 type TypeBindingEnvironment<'a> = HashMap<&'a str, bool>;
 
 fn check_binding_declaration<'a>(
-	decl: &'a Declaration<'a>, name_env: &'_ mut NameBindingEnvironment<'a>,
-	type_env: &'_ mut TypeBindingEnvironment<'a>,
+	decl: &'a Declaration<'a>, name_env: &'_ mut NameBindingEnvironment<'a>, type_env: &'_ mut TypeBindingEnvironment<'a>,
 ) {
-	let Declaration {
-		specifier,
-		declarator,
-	} = decl;
-	if let Some(Declarator {
-		ident: Identifier(var_name),
-		..
-	}) = declarator
-	{
+	let Declaration { specifier, declarator } = decl;
+	if let Some(Declarator { ident: Identifier(var_name), .. }) = declarator {
 		if name_env.contains_key(var_name) {
 			if name_env[var_name] {
 				// cannot rebound by an identifer in the same scope
@@ -561,10 +501,7 @@ fn check_binding_declaration<'a>(
 		// should be some struct type declaration
 		use TypeSpecifier::*;
 		match specifier {
-			StructTy(StructType {
-				identifier: Identifier(ty_name),
-				declarations,
-			}) => {
+			StructTy(StructType { identifier: Identifier(ty_name), declarations }) => {
 				if type_env.contains_key(ty_name) {
 					if declarations.is_some() {
 						*type_env.get_mut(ty_name).unwrap() = true;
@@ -598,13 +535,14 @@ fn check_binding_at_expression(expr: &'_ Expression, env: &'_ NameBindingEnviron
 			check_binding_at_expression(rhs.as_ref(), env);
 		}
 
-		_ => {}
+		ConstantExpr(_) => {}
+
+		_ => todo!(),
 	}
 }
 
 fn check_binding_at_statement<'a>(
-	stmt: &'a Statement, name_env: &'_ mut NameBindingEnvironment<'a>,
-	type_env: &'_ mut TypeBindingEnvironment<'a>,
+	stmt: &'a Statement, name_env: &'_ mut NameBindingEnvironment<'a>, type_env: &'_ mut TypeBindingEnvironment<'a>,
 ) {
 	use Statement::*;
 	match stmt {
@@ -624,11 +562,7 @@ fn check_binding_at_statement<'a>(
 			}
 		}
 
-		IfStmt(IfStatement {
-			condition,
-			then_statement,
-			else_statement,
-		}) => {
+		IfStmt(IfStatement { condition, then_statement, else_statement }) => {
 			check_binding_at_expression(condition, name_env);
 			check_binding_at_statement(then_statement.as_ref(), name_env, type_env);
 			if let Some(stmt) = else_statement {
@@ -687,11 +621,7 @@ fn check_binding(tu: &'_ TranslationUnit) {
 		use ExternalDeclaration::*;
 		match ed {
 			FunctionDefinitionDecl(FunctionDefinition {
-				declarator:
-					FunctionDeclarator {
-						identifier: Identifier(fname),
-						parameters,
-					},
+				declarator: FunctionDeclarator { identifier: Identifier(fname), parameters },
 				body,
 				..
 			}) => {
@@ -714,9 +644,7 @@ fn check_binding(tu: &'_ TranslationUnit) {
 	}
 }
 
-fn check_lr_value_statement<'a>(
-	stmt: &'a Statement<'a>, bounded_identifiers: &'_ mut HashSet<&'a str>,
-) {
+fn check_lr_value_statement<'a>(stmt: &'a Statement<'a>, bounded_identifiers: &'_ mut HashSet<&'a str>) {
 	use Statement::*;
 	match stmt {
 		CompoundStmt(stmts) => {
@@ -727,11 +655,7 @@ fn check_lr_value_statement<'a>(
 		}
 
 		DeclarationStmt(Declaration { declarator, .. }) => {
-			if let Some(Declarator {
-				ident: Identifier(i),
-				..
-			}) = declarator
-			{
+			if let Some(Declarator { ident: Identifier(i), .. }) = declarator {
 				bounded_identifiers.insert(i);
 			}
 		}
@@ -739,18 +663,16 @@ fn check_lr_value_statement<'a>(
 		ExpressionStmt(Some(expr)) => {
 			use Expression::*;
 			match expr {
-				BinaryOperatorExpr(BinaryOperatorExpression {
-					operator: BinaryOperator::Assignment,
-					lhs,
-					..
-				}) => match lhs.as_ref() {
-					IdentifierExpr(Identifier(ident)) => {
-						if !bounded_identifiers.contains(ident) {
-							error!("failed to assign, {} is not a lvalue", ident)
+				BinaryOperatorExpr(BinaryOperatorExpression { operator: BinaryOperator::Assignment, lhs, .. }) => {
+					match lhs.as_ref() {
+						IdentifierExpr(Identifier(ident)) => {
+							if !bounded_identifiers.contains(ident) {
+								error!("failed to assign, {} is not a lvalue", ident)
+							}
 						}
+						_ => {}
 					}
-					_ => {}
-				},
+				}
 				_ => {}
 			}
 		}
@@ -759,9 +681,7 @@ fn check_lr_value_statement<'a>(
 	}
 }
 
-fn check_lr_value_function<'a>(
-	func: &'a FunctionDefinition<'a>, bounded_identifiers: &'_ HashSet<&str>,
-) {
+fn check_lr_value_function<'a>(func: &'a FunctionDefinition<'a>, bounded_identifiers: &'_ HashSet<&str>) {
 	let FunctionDefinition {
 		declarator: FunctionDeclarator {
 			parameters,
@@ -774,16 +694,9 @@ fn check_lr_value_function<'a>(
 
 	let mut local_bounded_identifiers = bounded_identifiers.clone();
 	for Declaration { declarator, .. } in parameters {
-		checked_if_let!(
-			Some(Declarator {
-				ident: Identifier(pname),
-				..
-			}),
-			declarator,
-			{
-				local_bounded_identifiers.insert(pname);
-			}
-		);
+		checked_if_let!(Some(Declarator { ident: Identifier(pname), .. }), declarator, {
+			local_bounded_identifiers.insert(pname);
+		});
 	}
 	check_lr_value_statement(body, &mut local_bounded_identifiers);
 }
@@ -807,11 +720,7 @@ fn check_lr_value<'a>(TranslationUnit(eds): &'a TranslationUnit<'a>) {
 			}
 
 			Decl(Declaration { declarator, .. }) => {
-				if let Some(Declarator {
-					ident: Identifier(ident),
-					..
-				}) = declarator
-				{
+				if let Some(Declarator { ident: Identifier(ident), .. }) = declarator {
 					bounded_identifiers.insert(ident);
 				}
 			}
@@ -820,8 +729,8 @@ fn check_lr_value<'a>(TranslationUnit(eds): &'a TranslationUnit<'a>) {
 }
 
 pub fn check_statement<'a>(
-	stmt: &'_ Statement<'a>, bind_env: &'_ mut BindingEnvironment<'a>,
-	type_env: &'_ mut TypingEnvironment<'a>, return_ty: &'_ SimpleType<'a>,
+	stmt: &'_ Statement<'a>, bind_env: &'_ mut BindingEnvironment<'a>, type_env: &'_ mut TypingEnvironment<'a>,
+	return_ty: &'_ SimpleType<'a>,
 ) {
 	use BinaryOperator::*;
 	use Expression::*;
@@ -838,41 +747,35 @@ pub fn check_statement<'a>(
 
 				// check also value qualifier
 				match expr {
-					BinaryOperatorExpr(BinaryOperatorExpression { operator, lhs, .. }) => {
-						match operator {
-							Assignment
-							| AdditionAssignment
-							| SubtractionAssignment
-							| MultiplicationAssignment
-							| DivisionAssignment => match lhs.as_ref() {
+					BinaryOperatorExpr(BinaryOperatorExpression { operator, lhs, .. }) => match operator {
+						Assignment
+						| AdditionAssignment
+						| SubtractionAssignment
+						| MultiplicationAssignment
+						| DivisionAssignment => match lhs.as_ref() {
+							IdentifierExpr(lhs_ident) => {
+								let QualifiedSimpleType { qualifier, .. } = bind_env.get(lhs_ident.into());
+								if *qualifier == Expressed {
+									error!("lhs must be a denoted value")
+								}
+							}
+
+							MemberExpr(MemberExpression { expression, .. }) => match expression.as_ref() {
 								IdentifierExpr(lhs_ident) => {
-									let QualifiedSimpleType { qualifier, .. } =
-										bind_env.get(lhs_ident.into());
+									let QualifiedSimpleType { qualifier, .. } = bind_env.get(lhs_ident.into());
 									if *qualifier == Expressed {
 										error!("lhs must be a denoted value")
 									}
 								}
 
-								MemberExpr(MemberExpression { expression, .. }) => {
-									match expression.as_ref() {
-										IdentifierExpr(lhs_ident) => {
-											let QualifiedSimpleType { qualifier, .. } =
-												bind_env.get(lhs_ident.into());
-											if *qualifier == Expressed {
-												error!("lhs must be a denoted value")
-											}
-										}
-
-										_ => error!("lhs must be a denoted value"),
-									}
-								}
-
-								_ => unimpl!("unsupported lhs"),
+								_ => error!("lhs must be a denoted value"),
 							},
 
-							_ => unsafe { unreachable_unchecked() },
-						}
-					}
+							_ => unimpl!("unsupported lhs"),
+						},
+
+						_ => unsafe { unreachable_unchecked() },
+					},
 
 					_ => {}
 				}
@@ -895,21 +798,11 @@ pub fn check_statement<'a>(
 		}
 
 		DeclarationStmt(declaration) => {
-			let Declaration {
-				specifier,
-				declarator,
-			} = declaration;
+			let Declaration { specifier, declarator } = declaration;
 			if declarator.is_some() {
-				let (ident_name, ident_ty) =
-					SimpleType::parse_declaration(declaration, type_env, Some(bind_env));
+				let (ident_name, ident_ty) = SimpleType::parse_declaration(declaration, type_env, Some(bind_env));
 				if let Some(ident_name) = ident_name {
-					bind_env.bind(
-						ident_name.into(),
-						QualifiedSimpleType {
-							qualifier: Denoted,
-							ty: ident_ty,
-						},
-					)
+					bind_env.bind(ident_name.into(), QualifiedSimpleType { qualifier: Denoted, ty: ident_ty })
 				}
 			} else {
 				// some new struct definition
@@ -957,62 +850,37 @@ pub fn check<'a>(tu: &'a TranslationUnit<'a>) {
 	for extern_decl in eds {
 		match extern_decl {
 			FunctionDefinitionDecl(FunctionDefinition {
-				declarator: FunctionDeclarator {
-					identifier,
-					parameters,
-				},
+				declarator: FunctionDeclarator { identifier, parameters },
 				body,
 				specifier,
 			}) => {
+				let mut func_bind_env = bind_env.inherit();
+
 				let return_ty = SimpleType::from_type_specifier(specifier, &mut type_env);
 				let mut param_ty = Vec::new();
 				for param in parameters {
 					let (pname, pty) = SimpleType::parse_declaration(param, &mut type_env, None);
 					param_ty.push(pty.clone());
 
-					bind_env.bind(
-						checked_unwrap!(pname).into(),
-						QualifiedSimpleType {
-							qualifier: Denoted,
-							ty: pty,
-						},
-					);
+					func_bind_env
+						.bind(checked_unwrap_option!(pname).into(), QualifiedSimpleType { qualifier: Denoted, ty: pty });
 				}
 
-				let fty = SimpleType::FunctionTy(FunctionType {
-					return_ty: Box::new(return_ty.clone()),
-					param_ty,
-				});
+				let fty = SimpleType::FunctionTy(FunctionType { return_ty: Box::new(return_ty.clone()), param_ty });
 
-				bind_env.bind(
-					identifier.into(),
-					QualifiedSimpleType {
-						qualifier: Expressed,
-						ty: fty,
-					},
-				);
+				func_bind_env.bind(identifier.into(), QualifiedSimpleType { qualifier: Expressed, ty: fty });
 
 				checked_match!(body, Statement::CompoundStmt(_), {
-					check_statement(body, &mut bind_env, &mut type_env, &return_ty);
+					check_statement(body, &mut func_bind_env, &mut type_env, &return_ty);
 				});
 			}
 
 			Decl(declaration) => {
-				let Declaration {
-					specifier,
-					declarator,
-				} = declaration;
+				let Declaration { specifier, declarator } = declaration;
 				if declarator.is_some() {
-					let (ident_name, ident_ty) =
-						SimpleType::parse_declaration(declaration, &mut type_env, Some(&bind_env));
+					let (ident_name, ident_ty) = SimpleType::parse_declaration(declaration, &mut type_env, Some(&bind_env));
 					if let Some(ident_name) = ident_name {
-						bind_env.bind(
-							ident_name.into(),
-							QualifiedSimpleType {
-								qualifier: Denoted,
-								ty: ident_ty,
-							},
-						)
+						bind_env.bind(ident_name.into(), QualifiedSimpleType { qualifier: Denoted, ty: ident_ty })
 					}
 				} else {
 					// some new struct definition

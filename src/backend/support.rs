@@ -6,7 +6,7 @@ use cranelift_module::{FuncId, Module};
 use cranelift_simplejit::SimpleJITBackend;
 
 use crate::{
-	checked_if_let, checked_unwrap,
+	checked_if_let, checked_unwrap_option,
 	frontend::syntax::{
 		BinaryOperator, BinaryOperatorExpression, Constant, Declaration, Declarator, Expression,
 		Identifier, StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
@@ -55,7 +55,7 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 	fn into(self) -> AggregateType<'a> {
 		// struct type definition: each declaration is a field declaration
 		let StructType { declarations, .. } = self;
-		let declarations = checked_unwrap!(declarations.as_ref());
+		let declarations = checked_unwrap_option!(declarations.as_ref());
 		let fields: Vec<(&str, Type)> = declarations
 			.iter()
 			.map(
@@ -144,7 +144,7 @@ pub type NameBindingEnvironment<'a> = HashMap<&'a str, SimpleTypedIdentifier<'a>
 pub type TypeBindingEnvironment<'a> = HashMap<&'a str, SimpleType<'a>>;
 
 // backend-ed module
-pub type ConcreteModule = Module<SimpleJITBackend>;
+pub type JitModule = Module<SimpleJITBackend>;
 
 pub fn evaluate_constant_arithmetic_expression(expr: &'_ Expression) -> Option<i64> {
 	use Expression::*;
