@@ -2,9 +2,7 @@
 //  - ir translation
 //  - machine code generation
 
-use cranelift_codegen::ir::Function;
-use cranelift_module::{FuncId, Module, Backend};
-use cranelift_simplejit::SimpleJITBuilder;
+use cranelift_module::{Backend, FuncId, Module};
 
 mod function;
 mod support;
@@ -12,8 +10,7 @@ mod translation;
 
 use crate::frontend::syntax::TranslationUnit;
 use support::{
-	JitModule, FunctionIdentifier, NameBindingEnvironment, SimpleTypedIdentifier,
-	TypeBindingEnvironment,
+	FunctionIdentifier, NameBindingEnvironment, SimpleTypedIdentifier, TypeBindingEnvironment,
 };
 
 // an abstract machine that runs Cranelift IR

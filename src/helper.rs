@@ -16,14 +16,14 @@ macro_rules! unimpl {
 macro_rules! checked_unwrap_option {
 	($expr:expr) => {
 		$expr.unwrap_or_else(|| unsafe { unreachable_unchecked() })
-	}
+	};
 }
 
 #[macro_export]
 macro_rules! checked_unwrap_result {
 	($expr:expr) => {
 		$expr.unwrap_or_else(|_| unsafe { unreachable_unchecked() })
-	}
+	};
 }
 
 #[macro_export]
@@ -33,7 +33,7 @@ macro_rules! checked_if_let {
 			$block
 		} else {
 			unsafe { unreachable_unchecked() }
-		}
+			}
 	};
 }
 
@@ -43,6 +43,6 @@ macro_rules! checked_match {
 		match $expr {
 			$pat => $block,
 			_ => unsafe { unreachable_unchecked() },
-		}
+			}
 	};
 }

@@ -4,7 +4,7 @@ use std::hint::unreachable_unchecked;
 use crate::error;
 
 const KEYWORDS: &'_ [&'_ str] = &[
-	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void"
+	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void",
 ];
 
 #[derive(Clone)]
