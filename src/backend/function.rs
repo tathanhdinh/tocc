@@ -21,7 +21,7 @@ use cranelift_codegen::{
 use cranelift_module::{Backend, FuncId, Linkage, Module};
 
 use crate::{
-	checked_if_let, checked_match, checked_unwrap_option, checked_unwrap_result, generate_random_maps,
+	checked_if_let, checked_match, checked_unwrap_option, checked_unwrap_result,
 	frontend::syntax::{
 		BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration,
 		Declarator, DerivedDeclarator, DoWhileStatement, Expression, ExternalDeclaration,
@@ -29,13 +29,12 @@ use crate::{
 		MemberExpression, MemberOperator, Statement, StructType, TranslationUnit, TypeSpecifier,
 		UnaryOperator, UnaryOperatorExpression, WhileStatement,
 	},
-	unimpl,
+	generate_random_maps, unimpl,
 };
 
 use super::support::{
-	evaluate_constant_arithmetic_expression, generate_random_maps_bv16, generate_random_maps_bv32,
-	generate_random_maps_bv8, generate_random_partition, AggregateIdentifier, AggregateType,
-	FunctionIdentifier, FunctionType, NameBindingEnvironment, PointerIdentifer,
+	evaluate_constant_arithmetic_expression, generate_random_partition, AggregateIdentifier,
+	AggregateType, FunctionIdentifier, FunctionType, NameBindingEnvironment, PointerIdentifer,
 	PrimitiveIdentifier, SimpleConcreteType, SimpleType, SimpleTypedIdentifier,
 	TypeBindingEnvironment,
 };
@@ -212,7 +211,7 @@ pub fn translate_function<'clif, 'tcx>(
 
 	let mut func_translator =
 		FunctionTranslator::new(func_builder, module, func_id, return_ty, name_env, type_env);
-	func_translator.blur_signature();
+	// func_translator.blur_signature();
 	func_translator.translate_statement(body);
 	func_translator.func_builder.get_mut().finalize();
 	println!("{:?}", func_translator.func_builder.borrow().func);
@@ -285,9 +284,6 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			};
 			let sigref = self.import_signature(&sig);
 
-			// let self_func = self.module.declare_func_in_func(self.func_id, self.func_builder.get_mut().func);
-			// let faddr = self.func_addr(self_func);
-			// let faddr = self.self_func_addr();
 			let pval_blurred = self.blur_value(pval);
 			let faddr = self.func_addr(self.func_ref);
 
@@ -315,9 +311,110 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
+	fn split_and_merge_value(&'_ self, val: Value) -> Value {
+		let val_ty = self.value_type(val);
+		let val_size = val_ty.bytes();
+
+		let random_type_partition = generate_random_partition(val_size);
+		let mut offset = 0i32;
+		let mut partitioned_values = Vec::new();
+		// let mut merged_val = self.iconst(val_ty, 0);
+		for ty in random_type_partition {
+			let pv = self.logical_shr_imm(val, offset);
+			let pv = checked_unwrap_option!(self.ireduce(ty, pv));
+			let pv = match ty {
+				types::I8 => {
+					let (a0, b0, a1, b1) = generate_random_maps!(i8);
+					self.iadd_imm(
+						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
+						b1,
+					)
+				}
+
+				types::I16 => {
+					let (a0, b0, a1, b1) = generate_random_maps!(i16);
+					self.iadd_imm(
+						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
+						b1,
+					)
+				}
+
+				types::I32 => {
+					let (a0, b0, a1, b1) = generate_random_maps!(i32);
+					self.iadd_imm(
+						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
+						b1,
+					)
+				}
+
+				_ => pv,
+			};
+
+			let pv = checked_unwrap_option!(self.uextend(val_ty, pv));
+			partitioned_values.push(self.logical_shl_imm(pv, offset));
+
+			offset += ty.bits() as i32;
+		}
+
+		partitioned_values.into_iter().fold(self.iconst(val_ty, 0), |acc, v| self.bor(acc, v))
+	}
+
 	fn blur_value(&'_ self, val: Value) -> Value {
 		let val_ty = self.value_type(val);
 		let val_size = val_ty.bytes();
+
+		// let ss = self.create_stack_slot(val_size as _);
+		// let ss_addr = self.stack_addr(ss, 0);
+
+		// let random_type_partition = generate_random_partition(val_size);
+		// let mut offset = 0i32;
+		// for ty in random_type_partition {
+		// 	let partitioned_val = {
+		// 		let pval = self.logical_shr_imm(val, offset * 8);
+		// 		let pval = checked_unwrap_option!(self.ireduce(ty, pval));
+		// 		match ty {
+		// 			types::I8 => {
+		// 				let (a0, b0, a1, b1) = generate_random_maps!(i8);
+		// 				self.iadd_imm(
+		// 					self.blur_imul_imm(
+		// 						self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
+		// 						a1,
+		// 					),
+		// 					b1,
+		// 				)
+		// 			}
+
+		// 			types::I16 => {
+		// 				let (a0, b0, a1, b1) = generate_random_maps!(i16);
+		// 				self.iadd_imm(
+		// 					self.blur_imul_imm(
+		// 						self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
+		// 						a1,
+		// 					),
+		// 					b1,
+		// 				)
+		// 			}
+
+		// 			types::I32 => {
+		// 				let (a0, b0, a1, b1) = generate_random_maps!(i32);
+		// 				self.iadd_imm(
+		// 					self.blur_imul_imm(
+		// 						self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
+		// 						a1,
+		// 					),
+		// 					b1,
+		// 				)
+		// 			}
+
+		// 			_ => pval,
+		// 		}
+		// 	};
+		// 	self.store(partitioned_val, self.split_and_merge_value(ss_addr), offset);
+
+		// 	offset += ty.bytes() as i32;
+		// }
+
+		// self.load(val_ty, ss_addr, 0)
 
 		let ss = {
 			let ss = self.create_stack_slot(val_size as _);
@@ -330,10 +427,12 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					let pval = checked_unwrap_option!(self.ireduce(ty, pval));
 					match ty {
 						types::I8 => {
-							// let (a0, b0, a1, b1) = generate_random_maps_bv8();
 							let (a0, b0, a1, b1) = generate_random_maps!(i8);
 							self.iadd_imm(
-								self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0), a1),
+								self.imul_imm(
+									self.iadd_imm(self.blur_imul_imm(pval, a0), b0),
+									a1,
+								),
 								b1,
 							)
 						}
@@ -341,7 +440,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						types::I16 => {
 							let (a0, b0, a1, b1) = generate_random_maps!(i16);
 							self.iadd_imm(
-								self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0), a1),
+								self.imul_imm(
+									self.iadd_imm(self.blur_imul_imm(pval, a0), b0),
+									a1,
+								),
 								b1,
 							)
 						}
@@ -349,7 +451,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						types::I32 => {
 							let (a0, b0, a1, b1) = generate_random_maps!(i32);
 							self.iadd_imm(
-								self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0), a1),
+								self.imul_imm(
+									self.iadd_imm(self.blur_imul_imm(pval, a0), b0),
+									a1,
+								),
 								b1,
 							)
 						}
@@ -1441,6 +1546,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 	fn logical_shr_imm(&'_ self, x: Value, y: impl Into<i64>) -> Value {
 		self.func_builder.borrow_mut().ins().ushr_imm(x, y.into())
+	}
+
+	fn logical_shl_imm(&'_ self, x: Value, y: impl Into<i64>) -> Value {
+		self.func_builder.borrow_mut().ins().ishl_imm(x, y.into())
 	}
 
 	fn band(&'_ self, x: Value, y: Value) -> Value {
