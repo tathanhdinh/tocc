@@ -53,23 +53,14 @@ struct FunctionTranslator<'clif, 'tcx, B: Backend> {
 	return_ty: Option<Type>,
 }
 
-pub fn translate_function<'clif, 'tcx>(
-	func_def: &'tcx FunctionDefinition<'tcx>, ctxt: &'clif mut Context,
-	module: &'clif mut Module<impl Backend>, name_env: &'_ mut NameBindingEnvironment<'tcx>,
-	type_env: &'_ mut TypeBindingEnvironment<'tcx>,
-) -> (FuncId, usize) {
-	use SimpleType::*;
+fn blur_function_signature(
+	func_def: &'_ FunctionDefinition<'_>, ctxt: &'_ mut Context, pointer_ty: Type,
+) -> (Option<Type>, Vec<Type>) {
 	use TypeSpecifier::*;
 
-	let FunctionDefinition {
-		specifier,
-		declarator: FunctionDeclarator { identifier: Identifier(fname), parameters },
-		body,
-	} = func_def;
+	let FunctionDefinition { specifier, declarator: FunctionDeclarator { parameters, .. }, .. } =
+		func_def;
 
-	let pointer_ty = module.target_config().pointer_type();
-
-	// function signature: return type
 	let return_ty = match specifier {
 		CharTy | ShortTy | IntTy | LongTy => Some(specifier.into()),
 
@@ -77,11 +68,11 @@ pub fn translate_function<'clif, 'tcx>(
 
 		VoidTy => None,
 	};
-	if let Some(ty) = return_ty {
-		ctxt.func.signature.returns.push(AbiParam::new(ty));
+	if return_ty.is_some() {
+		// blur return type
+		ctxt.func.signature.returns.push(AbiParam::new(pointer_ty));
 	}
 
-	// function signature: param type
 	let mut param_ty = Vec::new();
 	for Declaration { specifier, declarator } in parameters {
 		let Declarator { derived, .. } = checked_unwrap_option!(declarator.as_ref());
@@ -98,11 +89,11 @@ pub fn translate_function<'clif, 'tcx>(
 			match specifier {
 				CharTy | ShortTy | IntTy | LongTy => {
 					let ty = specifier.into();
-					ctxt.func.signature.params.push(AbiParam::new(ty));
+					// blur param type
+					ctxt.func.signature.params.push(AbiParam::new(pointer_ty));
 					param_ty.push(ty)
 				}
 
-				// simplification: struct definition does not occurs in parameter list
 				StructTy(_) => todo!(),
 
 				VoidTy => unsafe { unreachable_unchecked() },
@@ -110,31 +101,53 @@ pub fn translate_function<'clif, 'tcx>(
 		}
 	}
 
-	let func_id = checked_unwrap_result!(module.declare_function(
-		fname,
-		Linkage::Export,
-		&ctxt.func.signature
-	));
+	(return_ty, param_ty)
+}
 
-	name_env.insert(
-		fname,
-		SimpleTypedIdentifier::FunctionIdent(FunctionIdentifier {
-			ident: func_id,
-			ty: SimpleType::FunctionTy(FunctionType { return_ty, param_ty }),
-		}),
-	);
+fn create_entry_ebb(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty: Type) -> Ebb {
+	let trampoline_ebb = fb.create_ebb();
+	fb.append_ebb_params_for_function_params(trampoline_ebb);
 
-	let mut func_builder_ctxt = FunctionBuilderContext::new();
-	let mut func_builder = FunctionBuilder::new(&mut ctxt.func, &mut func_builder_ctxt);
+	fb.switch_to_block(trampoline_ebb);
+	let mut param_vals = Vec::new();
+	for (i, ty) in param_ty.iter().enumerate() {
+		let val = {
+			let val = fb.ebb_params(trampoline_ebb)[i];
+			if ty.bytes() < pointer_ty.bytes() {
+				fb.ins().ireduce(*ty, val)
+			} else {
+				val
+			}
+		};
+		param_vals.push(val);
+	}
 
-	let entry_ebb = func_builder.create_ebb();
-	func_builder.append_ebb_params_for_function_params(entry_ebb);
-	func_builder.switch_to_block(entry_ebb);
+	let entry_ebb = fb.create_ebb();
+	for ty in param_ty {
+		fb.append_ebb_param(entry_ebb, *ty);
+	}
+	fb.ins().jump(entry_ebb, &param_vals);
+	fb.seal_block(trampoline_ebb);
+
+	fb.switch_to_block(entry_ebb);
+	fb.seal_block(entry_ebb);
+	entry_ebb
+}
+
+fn declare_parameter_variables<'tcx>(
+	func_def: &'_ FunctionDefinition<'tcx>, fb: &'_ mut FunctionBuilder, entry_ebb: Ebb,
+	pointer_ty: Type, name_env: &'_ mut NameBindingEnvironment<'tcx>,
+	type_env: &'_ mut TypeBindingEnvironment<'tcx>,
+) {
+	use SimpleType::*;
+	use TypeSpecifier::*;
+
+	let FunctionDefinition { declarator: FunctionDeclarator { parameters, .. }, .. } = func_def;
 
 	for (i, Declaration { declarator, specifier }) in parameters.iter().enumerate() {
 		let Declarator { ident: Identifier(var_name), derived, .. } =
-			checked_unwrap_option!(declarator.as_ref()); // checked in syntax analysis
-		let param_val = func_builder.ebb_params(entry_ebb)[i];
+			checked_unwrap_option!(declarator.as_ref());
+		let param_val = fb.ebb_params(entry_ebb)[i];
 
 		match specifier {
 			VoidTy => todo!(),
@@ -143,8 +156,7 @@ pub fn translate_function<'clif, 'tcx>(
 				if let Some(derived_decl) = derived {
 					match derived_decl {
 						DerivedDeclarator::Pointer => {
-							let new_var =
-								declare_variable(&mut func_builder, pointer_ty, Some(param_val));
+							let new_var = declare_variable(fb, pointer_ty, Some(param_val));
 
 							name_env.insert(
 								var_name,
@@ -156,8 +168,7 @@ pub fn translate_function<'clif, 'tcx>(
 						}
 					}
 				} else {
-					let new_var =
-						declare_variable(&mut func_builder, specifier.into(), Some(param_val));
+					let new_var = declare_variable(fb, specifier.into(), Some(param_val));
 
 					name_env.insert(
 						var_name,
@@ -173,8 +184,7 @@ pub fn translate_function<'clif, 'tcx>(
 				if let Some(derived_decl) = derived {
 					match derived_decl {
 						DerivedDeclarator::Pointer => {
-							let new_var =
-								declare_variable(&mut func_builder, pointer_ty, Some(param_val));
+							let new_var = declare_variable(fb, pointer_ty, Some(param_val));
 
 							let aggre_ty = checked_unwrap_option!(type_env.get(sname));
 
@@ -188,26 +198,196 @@ pub fn translate_function<'clif, 'tcx>(
 						}
 					}
 				} else {
-					// simplification: struct has always MEMORY class
-					// (i.e. larger than 8 bytes or  contains unaligned field)
-					// System V ABI AMD64: 3.2.3 Parameter Passing
-					unimpl!("passing struct by value unsupported")
+					todo!()
 				}
 			}
 		}
 	}
+}
 
-	let body_ebb = func_builder.create_ebb();
-	func_builder.ins().jump(body_ebb, &[]);
-	func_builder.seal_block(entry_ebb);
-	func_builder.switch_to_block(body_ebb);
-	func_builder.seal_block(body_ebb);
+pub fn translate_function<'clif, 'tcx>(
+	func_def: &'tcx FunctionDefinition<'tcx>, ctxt: &'clif mut Context,
+	module: &'clif mut Module<impl Backend>, name_env: &'_ mut NameBindingEnvironment<'tcx>,
+	type_env: &'_ mut TypeBindingEnvironment<'tcx>,
+) -> (FuncId, usize) {
+	use SimpleType::*;
+	use TypeSpecifier::*;
 
-	// for _ in func_builder.func.layout.ebbs() {
-	// 	println!("ebb");
+	let FunctionDefinition {
+		specifier,
+		declarator: FunctionDeclarator { identifier: Identifier(fname), parameters },
+		body,
+	} = func_def;
+
+	let pointer_ty = module.target_config().pointer_type();
+
+	// // function signature: return type
+	// let return_ty = match specifier {
+	// 	CharTy | ShortTy | IntTy | LongTy => Some(specifier.into()),
+
+	// 	StructTy(_) => todo!(),
+
+	// 	VoidTy => None,
+	// };
+	// if let Some(ty) = return_ty {
+	// 	// ctxt.func.signature.returns.push(AbiParam::new(ty));
+	// 	// blur return type
+	// 	ctxt.func.signature.returns.push(AbiParam::new(pointer_ty));
 	// }
-	// let entry_ebb = checked_unwrap_option!(func_builder.func.layout.entry_block());
-	// println!("ok");
+
+	// // function signature: param type
+	// let mut param_ty = Vec::new();
+	// for Declaration { specifier, declarator } in parameters {
+	// 	let Declarator { derived, .. } = checked_unwrap_option!(declarator.as_ref());
+	// 	if let Some(derived_decl) = derived {
+	// 		match derived_decl {
+	// 			// some pointer types
+	// 			DerivedDeclarator::Pointer => {
+	// 				ctxt.func.signature.params.push(AbiParam::new(pointer_ty));
+	// 				param_ty.push(pointer_ty);
+	// 			}
+	// 		}
+	// 	} else {
+	// 		// non pointer types
+	// 		match specifier {
+	// 			CharTy | ShortTy | IntTy | LongTy => {
+	// 				let ty = specifier.into();
+	// 				// ctxt.func.signature.params.push(AbiParam::new(ty));
+	// 				// blur param type
+	// 				ctxt.func.signature.params.push(AbiParam::new(pointer_ty));
+	// 				param_ty.push(ty)
+	// 			}
+
+	// 			// simplification: struct definition does not occurs in parameter list
+	// 			StructTy(_) => todo!(),
+
+	// 			VoidTy => unsafe { unreachable_unchecked() },
+	// 		}
+	// 	}
+	// }
+
+	let (return_ty, param_ty) = blur_function_signature(func_def, ctxt, pointer_ty);
+
+	let func_id = checked_unwrap_result!(module.declare_function(
+		fname,
+		Linkage::Export,
+		&ctxt.func.signature
+	));
+
+	name_env.insert(
+		fname,
+		SimpleTypedIdentifier::FunctionIdent(FunctionIdentifier {
+			ident: func_id,
+			ty: SimpleType::FunctionTy(FunctionType { return_ty, param_ty: param_ty.clone() }),
+		}),
+	);
+
+	let mut func_builder_ctxt = FunctionBuilderContext::new();
+	let mut func_builder = FunctionBuilder::new(&mut ctxt.func, &mut func_builder_ctxt);
+
+	// let entry_ebb = func_builder.create_ebb();
+	// func_builder.append_ebb_params_for_function_params(entry_ebb);
+	// func_builder.switch_to_block(entry_ebb);
+	// let mut param_vals = Vec::new();
+	// for (i, ty) in param_ty.iter().enumerate() {
+	// 	let val = {
+	// 		let val = func_builder.ebb_params(entry_ebb)[i];
+	// 		func_builder.ins().ireduce(*ty, val)
+	// 	};
+	// 	param_vals.push(val);
+	// }
+
+	// let real_entry_ebb = func_builder.create_ebb();
+	// for ty in &param_ty {
+	// 	func_builder.append_ebb_param(real_entry_ebb, *ty);
+	// }
+	// func_builder.ins().jump(real_entry_ebb, &param_vals);
+
+	// for (i, Declaration { declarator, specifier }) in parameters.iter().enumerate() {
+	// 	let Declarator { ident: Identifier(var_name), derived, .. } =
+	// 		checked_unwrap_option!(declarator.as_ref()); // checked in syntax analysis
+	// 	let param_val = func_builder.ebb_params(entry_ebb)[i];
+
+	// 	match specifier {
+	// 		VoidTy => todo!(),
+
+	// 		CharTy | ShortTy | IntTy | LongTy => {
+	// 			if let Some(derived_decl) = derived {
+	// 				match derived_decl {
+	// 					DerivedDeclarator::Pointer => {
+	// 						let new_var =
+	// 							declare_variable(&mut func_builder, pointer_ty, Some(param_val));
+
+	// 						name_env.insert(
+	// 							var_name,
+	// 							SimpleTypedIdentifier::PointerIdent(PointerIdentifer {
+	// 								ident: new_var,
+	// 								ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))),
+	// 							}),
+	// 						);
+	// 					}
+	// 				}
+	// 			} else {
+	// 				let new_var =
+	// 					declare_variable(&mut func_builder, specifier.into(), Some(param_val));
+
+	// 				name_env.insert(
+	// 					var_name,
+	// 					SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier {
+	// 						ident: new_var,
+	// 						ty: SimpleType::PrimitiveTy(specifier.into()),
+	// 					}),
+	// 				);
+	// 			}
+	// 		}
+
+	// 		StructTy(StructType { identifier: Identifier(sname), .. }) => {
+	// 			if let Some(derived_decl) = derived {
+	// 				match derived_decl {
+	// 					DerivedDeclarator::Pointer => {
+	// 						let new_var =
+	// 							declare_variable(&mut func_builder, pointer_ty, Some(param_val));
+
+	// 						let aggre_ty = checked_unwrap_option!(type_env.get(sname));
+
+	// 						name_env.insert(
+	// 							var_name,
+	// 							SimpleTypedIdentifier::PointerIdent(PointerIdentifer {
+	// 								ident: new_var,
+	// 								ty: PointerTy(Box::new(aggre_ty.clone())),
+	// 							}),
+	// 						);
+	// 					}
+	// 				}
+	// 			} else {
+	// 				// simplification: struct has always MEMORY class
+	// 				// (i.e. larger than 8 bytes or  contains unaligned field)
+	// 				// System V ABI AMD64: 3.2.3 Parameter Passing
+	// 				unimpl!("passing struct by value unsupported")
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	// let body_ebb = func_builder.create_ebb();
+	// for ty in param_ty {
+	// 	func_builder.append_ebb_param(body_ebb, ty);
+	// }
+
+	// func_builder.ins().jump(body_ebb, &[]);
+	// func_builder.seal_block(entry_ebb);
+	// func_builder.switch_to_block(body_ebb);
+	// func_builder.seal_block(body_ebb);
+
+	let entry_ebb = create_entry_ebb(&mut func_builder, &param_ty, pointer_ty);
+	declare_parameter_variables(
+		func_def,
+		&mut func_builder,
+		entry_ebb,
+		pointer_ty,
+		name_env,
+		type_env,
+	);
 
 	let mut func_translator =
 		FunctionTranslator::new(func_builder, module, func_id, return_ty, name_env, type_env);
@@ -429,10 +609,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						types::I8 => {
 							let (a0, b0, a1, b1) = generate_random_maps!(i8);
 							self.iadd_imm(
-								self.imul_imm(
-									self.iadd_imm(self.blur_imul_imm(pval, a0), b0),
-									a1,
-								),
+								self.imul_imm(self.iadd_imm(self.blur_imul_imm(pval, a0), b0), a1),
 								b1,
 							)
 						}
@@ -440,10 +617,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						types::I16 => {
 							let (a0, b0, a1, b1) = generate_random_maps!(i16);
 							self.iadd_imm(
-								self.imul_imm(
-									self.iadd_imm(self.blur_imul_imm(pval, a0), b0),
-									a1,
-								),
+								self.imul_imm(self.iadd_imm(self.blur_imul_imm(pval, a0), b0), a1),
 								b1,
 							)
 						}
@@ -451,10 +625,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						types::I32 => {
 							let (a0, b0, a1, b1) = generate_random_maps!(i32);
 							self.iadd_imm(
-								self.imul_imm(
-									self.iadd_imm(self.blur_imul_imm(pval, a0), b0),
-									a1,
-								),
+								self.imul_imm(self.iadd_imm(self.blur_imul_imm(pval, a0), b0), a1),
 								b1,
 							)
 						}
@@ -773,16 +944,19 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 			ReturnStmt(expr) => {
 				if let Some(expr) = expr {
-					let val = self.translate_expression(expr);
-					let return_ty = checked_unwrap_option!(self.return_ty);
-					let val = match val {
-						ConstantTy(c) => self.iconst(return_ty, c),
-						ValueTy(v) => v,
-						StackSlotTy(ss) => self.stack_load(return_ty, ss, 0),
-						_ => unsafe { unreachable_unchecked() },
+					let val = {
+						let val = self.translate_expression(expr);
+						let return_ty = checked_unwrap_option!(self.return_ty);
+						match val {
+							ConstantTy(c) => self.iconst(return_ty, c),
+							ValueTy(v) => v,
+							StackSlotTy(ss) => self.stack_load(return_ty, ss, 0),
+							_ => unsafe { unreachable_unchecked() },
+						}
 					};
+					let ret_val = checked_unwrap_option!(self.uextend(self.pointer_ty, val));
 
-					self.insert_return(&val);
+					self.insert_return(ret_val);
 				}
 			}
 
@@ -1301,11 +1475,13 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				..
 			}) => {
 				let mut sig = self.module.make_signature();
-				if let Some(return_ty) = return_ty {
-					sig.returns.push(AbiParam::new(return_ty)); // return type
+				if return_ty.is_some() {
+					// sig.returns.push(AbiParam::new(return_ty));
+					sig.returns.push(AbiParam::new(self.pointer_ty));
 				}
-				for pty in param_ty.iter() {
-					sig.params.push(AbiParam::new(*pty)); // parameter types
+				for _ in &param_ty {
+					// sig.params.push(AbiParam::new(*pty));
+					sig.params.push(AbiParam::new(self.pointer_ty));
 				}
 
 				let callee = checked_unwrap_result!(self.module.declare_function(
@@ -1320,21 +1496,24 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					.iter()
 					.zip(param_ty.iter())
 					.map(|(arg, ty)| {
-						let arg_val = Self::translate_expression(self, arg);
-						match arg_val {
-							ValueTy(val) => Self::cast_value(self, *ty, val),
-							ConstantTy(val) => Self::iconst(self, *ty, val),
+						let arg_val = self.translate_expression(arg);
+						let arg_val = match arg_val {
+							ValueTy(val) => self.cast_value(*ty, val),
+							ConstantTy(val) => self.iconst(*ty, val),
+
 							_ => unsafe { unreachable_unchecked() },
-						}
+						};
+						checked_unwrap_option!(self.uextend(self.pointer_ty, arg_val))
 					})
 					.collect();
 
 				// let call = self.func_builder.borrow_mut().ins().call(local_callee, &arg_values);
 				let call = self.insert_call(local_callee, &arg_values);
 
-				if return_ty.is_some() {
+				if let Some(ty) = return_ty {
 					// ValueTy(self.func_builder.borrow_mut().inst_results(call)[0])
-					ValueTy(self.inst_result(call))
+					let ret_val = self.inst_result(call);
+					ValueTy(checked_unwrap_option!(self.ireduce(ty, ret_val)))
 				} else {
 					UnitTy
 				}
@@ -1612,8 +1791,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.func_builder.borrow_mut().ins().call_indirect(sigref, callee, args)
 	}
 
-	fn insert_return(&'_ self, val: &'_ Value) {
-		self.func_builder.borrow_mut().ins().return_(&[val.to_owned()]);
+	fn insert_return(&'_ self, val: Value) {
+		self.func_builder.borrow_mut().ins().return_(&[val]);
 	}
 
 	fn import_signature(&'_ self, fsig: &'_ Signature) -> SigRef {
