@@ -29,11 +29,7 @@ macro_rules! checked_unwrap_result {
 #[macro_export]
 macro_rules! checked_if_let {
 	($pat:pat, $expr:expr, $block:block) => {
-		if let $pat = $expr {
-			$block
-		} else {
-			unsafe { unreachable_unchecked() }
-			}
+		if let $pat = $expr { $block } else { unsafe { unreachable_unchecked() } }
 	};
 }
 

@@ -256,4 +256,19 @@ mod tests {
 	fn compile_16() {
 		assert_eq!(compile_and_run_int_to_int("tests/16.c", "foo", 0), 4);
 	}
+
+	#[test]
+	fn compile_17() {
+		assert_eq!(compile_and_run_int_to_int("tests/17.c", "fibo", 6), 8);
+	}
+
+	#[test]
+	fn compile_18() {
+		assert_eq!(compile_and_run_int_to_int("tests/18.c", "sum_0n", 4), 10);
+	}
+
+	#[test]
+	fn compile_19() {
+		assert_eq!(compile_and_run_int_to_int("tests/19.c", "collatz", 5), 4);
+	}
 }

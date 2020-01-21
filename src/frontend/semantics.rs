@@ -1,24 +1,18 @@
 // semantics analysis
 
 use std::{
-	borrow::Borrow,
-	cmp,
-	collections::{HashMap, HashSet},
-	hash::Hash,
-	hint::unreachable_unchecked,
-	i16, i32, i64, i8,
-	marker::PhantomData,
-	sync::atomic::{AtomicUsize, Ordering},
+	borrow::Borrow, cmp, collections::HashMap, hash::Hash, hint::unreachable_unchecked, i16, i32,
+	i64, i8, marker::PhantomData, sync::atomic::AtomicUsize,
 };
 
 use super::syntax::{
 	BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration, Declarator,
 	DerivedDeclarator, Expression, ExternalDeclaration, FunctionDeclarator, FunctionDefinition,
-	Identifier, IfStatement, Integer, MemberExpression, MemberOperator, Statement, StructType,
+	Identifier, IfStatement, MemberExpression, MemberOperator, Statement, StructType,
 	TranslationUnit, TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
 };
 
-use crate::{checked_if_let, checked_match, checked_unwrap_option, error, unimpl};
+use crate::{checked_match, checked_unwrap_option, error, unimpl};
 
 #[derive(Clone, Debug)]
 pub struct Environment<'a, K, Ty>
@@ -334,8 +328,19 @@ impl<'a> SimpleType<'a> {
 							IdentifierExpr(_) | MemberExpr(_) => {}
 							_ => error!("expression is not a lvalue"),
 						}
-						Self::PointerTy(Box::new(operand_ty))
+						PointerTy(Box::new(operand_ty))
 					}
+
+					Indirection => match &operand_ty {
+						PointerTy(ty) => match ty.as_ref() {
+							FunctionTy(_) => error!("unable to dereference function pointer"),
+							PointerTy(_) => todo!(),
+							UnitTy => error!("unable to dereference unit pointer"),
+							_ => ty.as_ref().to_owned(),
+						},
+
+						_ => error!("dereferene a non-pointer type"),
+					},
 				}
 			}
 
@@ -347,35 +352,58 @@ impl<'a> SimpleType<'a> {
 				}
 
 				match operator {
-					Multiplication | Division | Remainder | Addition | Subtraction => {
-						let lhs_ty: PrimitiveType = if let PrimitiveTy(ty) = lhs_ty {
-							ty
-						} else {
-							error!("operator cannot applied on lhs")
-						};
-						let rhs_ty: PrimitiveType = if let PrimitiveTy(ty) = rhs_ty {
-							ty
-						} else {
-							error!("operator cannot applied on rhs")
-						};
+					Multiplication | Division | Remainder => match (lhs_ty, rhs_ty) {
+						(PrimitiveTy(lhs_ty), PrimitiveTy(rhs_ty)) => {
+							PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
+						}
+						_ => error!("invalid operation"),
+					},
 
-						// type promotion
-						PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
+					Addition | Subtraction => {
+						match (&lhs_ty, &rhs_ty) {
+							(PrimitiveTy(lhs_ty), PrimitiveTy(rhs_ty)) => {
+								PrimitiveTy(cmp::max(lhs_ty.clone(), rhs_ty.clone()))
+							}
+							(PrimitiveTy(_), PointerTy(_)) => rhs_ty,
+							(PointerTy(_), PrimitiveTy(_)) => lhs_ty,
+							_ => error!("invalid operation"),
+						}
+
+						// let lhs_ty: PrimitiveType = if let PrimitiveTy(ty) = lhs_ty {
+						// 	ty
+						// } else {
+						// 	error!("operator cannot applied on lhs")
+						// };
+						// let rhs_ty: PrimitiveType = if let PrimitiveTy(ty) = rhs_ty {
+						// 	ty
+						// } else {
+						// 	error!("operator cannot applied on rhs")
+						// };
+
+						// // type promotion
+						// PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
 					}
 
-					Less | LessOrEqual | Greater | GreaterOrEqual | Equal => {
-						let lhs_ty: PrimitiveType = if let PrimitiveTy(ty) = lhs_ty {
-							ty
-						} else {
-							error!("operator cannot applied on lhs")
-						};
-						let rhs_ty: PrimitiveType = if let PrimitiveTy(ty) = rhs_ty {
-							ty
-						} else {
-							error!("operator cannot applied on rhs")
-						};
+					Less | LessOrEqual | Greater | GreaterOrEqual | Equal | NotEqual => {
+						match (lhs_ty, rhs_ty) {
+							(PrimitiveTy(lhs_ty), PrimitiveTy(rhs_ty)) => {
+								PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
+							}
 
-						PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
+							_ => todo!(),
+						}
+						// let lhs_ty: PrimitiveType = if let PrimitiveTy(ty) = lhs_ty {
+						// 	ty
+						// } else {
+						// 	error!("operator cannot applied on lhs")
+						// };
+						// let rhs_ty: PrimitiveType = if let PrimitiveTy(ty) = rhs_ty {
+						// 	ty
+						// } else {
+						// 	error!("operator cannot applied on rhs")
+						// };
+
+						// PrimitiveTy(cmp::max(lhs_ty, rhs_ty))
 					}
 
 					Assignment
@@ -837,12 +865,20 @@ pub fn check_statement<'a>(
 			// the returned expression has type unit (because of C)
 			if let Some(expr) = expr {
 				if *return_ty == UnitTy {
-					error!("return type is unit, but return statement has some expression")
+					error!("return type is unit, but return statement contains some expression")
 				} else {
 					let expr_ty = SimpleType::synthesize_expression(expr, bind_env);
-					if *return_ty != expr_ty {
-						error!("returned expression ill-typed")
+					match (return_ty, &expr_ty) {
+						(PrimitiveTy(_), PrimitiveTy(_)) => {}
+						(PointerTy(_), PointerTy(_)) => {}
+						(PrimitiveTy(_), PointerTy(_)) => {}
+						(PointerTy(_), PrimitiveTy(_)) => {}
+						_ => todo!(),
 					}
+
+					// if *return_ty != expr_ty {
+					// 	error!("returned expression ill-typed")
+					// }
 				}
 			}
 		}

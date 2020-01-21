@@ -7,21 +7,22 @@ const KEYWORDS: &'_ [&'_ str] = &[
 	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void",
 ];
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum UnaryOperator {
 	Negation,
 	PostIncrement,
 	PreIncrement,
 	Address,
+	Indirection,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UnaryOperatorExpression<'a> {
 	pub operator: UnaryOperator,
 	pub operand: Box<Expression<'a>>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BinaryOperator {
 	Multiplication,
 	Division,
@@ -33,6 +34,7 @@ pub enum BinaryOperator {
 	Greater,
 	GreaterOrEqual,
 	Equal,
+	NotEqual,
 	Assignment,
 	AdditionAssignment,
 	SubtractionAssignment,
@@ -40,13 +42,13 @@ pub enum BinaryOperator {
 	DivisionAssignment,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum MemberOperator {
 	Direct,
 	Indirect,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Integer(pub i64);
 
 impl Into<i64> for &'_ Integer {
@@ -61,19 +63,19 @@ impl Into<i64> for Integer {
 	}
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Constant {
 	IntegerConst(Integer),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BinaryOperatorExpression<'a> {
 	pub operator: BinaryOperator,
 	pub lhs: Box<Expression<'a>>,
 	pub rhs: Box<Expression<'a>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MemberExpression<'a> {
 	pub operator: MemberOperator,
 	pub expression: Box<Expression<'a>>,
@@ -81,13 +83,13 @@ pub struct MemberExpression<'a> {
 }
 
 // Simplified function calls (C11 6.5.5.2 Function calls)
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CallExpression<'a> {
 	pub callee: Identifier<'a>,
 	pub arguments: Vec<Expression<'a>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Expression<'a> {
 	UnaryOperatorExpr(UnaryOperatorExpression<'a>),
 	BinaryOperatorExpr(BinaryOperatorExpression<'a>),
@@ -97,14 +99,14 @@ pub enum Expression<'a> {
 	CallExpr(CallExpression<'a>),
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DerivedDeclarator {
 	Pointer,
 }
 
 // Simplified declarators
 // C11 6.7.6 Declarators
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Declarator<'a> {
 	pub ident: Identifier<'a>,
 	pub derived: Option<DerivedDeclarator>,
@@ -113,13 +115,13 @@ pub struct Declarator<'a> {
 
 // Simplified declaration
 // C11 6.7 Declarations
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Declaration<'a> {
 	pub specifier: TypeSpecifier<'a>,
 	pub declarator: Option<Declarator<'a>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IfStatement<'a> {
 	pub condition: Expression<'a>,
 	pub then_statement: Box<Statement<'a>>,
@@ -128,7 +130,7 @@ pub struct IfStatement<'a> {
 
 // C11 6.8.5.3 The for statement
 // Simplification: initializer is expression
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ForStatement<'a> {
 	pub initializer: Option<Expression<'a>>,
 	pub condition: Expression<'a>,
@@ -137,19 +139,19 @@ pub struct ForStatement<'a> {
 }
 
 // C11 6.8.5.1 The while statement
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WhileStatement<'a> {
 	pub condition: Expression<'a>,
 	pub statement: Box<Statement<'a>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DoWhileStatement<'a> {
 	pub condition: Expression<'a>,
 	pub statement: Box<Statement<'a>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Statement<'a> {
 	CompoundStmt(Vec<Statement<'a>>),
 
@@ -171,10 +173,10 @@ pub enum Statement<'a> {
 	DoWhileStmt(DoWhileStatement<'a>),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Identifier<'a>(pub &'a str);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StructType<'a> {
 	pub identifier: Identifier<'a>,
 	pub declarations: Option<Vec<Declaration<'a>>>,
@@ -183,7 +185,7 @@ pub struct StructType<'a> {
 // Plain signed types
 // ABI: 3.1.2 Data Representation
 // C11: 6.2.5 Types
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TypeSpecifier<'a> {
 	CharTy,
 	ShortTy,
@@ -341,6 +343,13 @@ peg::parser! {grammar parser() for str {
 				rhs: Box::new(b)
 			})
 		}
+		a:(@) blank()* "!=" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::NotEqual,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
 		--
 		a:(@) blank()* "+" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
@@ -395,6 +404,12 @@ peg::parser! {grammar parser() for str {
 		"&" blank()* a:@ {
 			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
 				operator: UnaryOperator::Address,
+				operand: Box::new(a),
+			})
+		}
+		"*" blank()* a:@ {
+			Expression::UnaryOperatorExpr(UnaryOperatorExpression {
+				operator: UnaryOperator::Indirection,
 				operand: Box::new(a),
 			})
 		}

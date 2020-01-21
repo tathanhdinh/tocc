@@ -13,7 +13,7 @@ use crate::{
 use super::{
 	function::{blur_function_signature, get_function_signature, translate_function},
 	support::{
-		AggregateType, FunctionIdentifier, FunctionType, NameBindingEnvironment, SimpleType,
+		AggregateType, FunctionIdentifier, FunctionType, NameBindingEnvironment, EffectiveType,
 		SimpleTypedIdentifier, TypeBindingEnvironment,
 	},
 };
@@ -53,7 +53,7 @@ pub fn compile<'clif, 'tcx>(
 					fname,
 					SimpleTypedIdentifier::FunctionIdent(FunctionIdentifier {
 						ident: func_id,
-						ty: SimpleType::FunctionTy(FunctionType {
+						ty: EffectiveType::FunctionTy(FunctionType {
 							return_ty,
 							param_ty: param_ty.clone(),
 						}),
@@ -72,7 +72,7 @@ pub fn compile<'clif, 'tcx>(
 				checked_match!(specifier, StructTy(struct_ty), {
 					let StructType { identifier: Identifier(sname), .. } = struct_ty;
 					let aggre_ty: AggregateType = struct_ty.into();
-					type_env.insert(sname, SimpleType::AggregateTy(aggre_ty))
+					type_env.insert(sname, EffectiveType::AggregateTy(aggre_ty))
 				});
 			}
 		}

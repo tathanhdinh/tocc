@@ -18,11 +18,18 @@ use crate::{
 	},
 };
 
-pub enum SimpleConcreteType {
+#[derive(Debug)]
+pub enum ConcreteValue {
 	ConstantTy(i64),
 	ValueTy(Value),
 	StackSlotTy(StackSlot),
-	UnitTy,
+	Unit,
+}
+
+#[derive(Debug)]
+pub struct SimpleTypedConcreteValue<'a> {
+	pub ty: EffectiveType<'a>,
+	pub val: ConcreteValue,
 }
 // EaC 7.7.1 Understanding Structure Layout
 // DRAGON 6.3.4 Storage Layouts for Local Names
@@ -78,35 +85,36 @@ pub struct FunctionType {
 }
 
 #[derive(Clone, Debug)]
-pub enum SimpleType<'a> {
+pub enum EffectiveType<'a> {
 	PrimitiveTy(Type),
 	AggregateTy(AggregateType<'a>),
 	FunctionTy(FunctionType),
-	PointerTy(Box<SimpleType<'a>>),
+	PointerTy(Box<EffectiveType<'a>>),
+	UnitTy,
 }
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveIdentifier<'a> {
 	pub ident: Variable,
-	pub ty: SimpleType<'a>,
+	pub ty: EffectiveType<'a>,
 }
 
 #[derive(Clone, Debug)]
 pub struct FunctionIdentifier<'a> {
 	pub ident: FuncId,
-	pub ty: SimpleType<'a>,
+	pub ty: EffectiveType<'a>,
 }
 
 #[derive(Clone, Debug)]
 pub struct AggregateIdentifier<'a> {
 	pub ident: StackSlot,
-	pub ty: SimpleType<'a>,
+	pub ty: EffectiveType<'a>,
 }
 
 #[derive(Clone, Debug)]
 pub struct PointerIdentifer<'a> {
 	pub ident: Variable,
-	pub ty: SimpleType<'a>,
+	pub ty: EffectiveType<'a>,
 }
 
 #[derive(Clone, Debug)]
@@ -135,7 +143,7 @@ impl Into<Type> for &TypeSpecifier<'_> {
 pub type NameBindingEnvironment<'a> = Environment<'a, &'a str, SimpleTypedIdentifier<'a>>;
 
 // visible types
-pub type TypeBindingEnvironment<'a> = HashMap<&'a str, SimpleType<'a>>;
+pub type TypeBindingEnvironment<'a> = HashMap<&'a str, EffectiveType<'a>>;
 
 pub fn evaluate_constant_arithmetic_expression(expr: &'_ Expression) -> Option<i64> {
 	use Expression::*;
@@ -152,6 +160,7 @@ pub fn evaluate_constant_arithmetic_expression(expr: &'_ Expression) -> Option<i
 				PreIncrement => Some(val + 1),
 				PostIncrement => Some(val),
 				Address => None,
+				Indirection => unsafe { unreachable_unchecked() }
 			}
 		}
 
@@ -205,11 +214,7 @@ macro_rules! generate_random_maps {
 		let mut rng = thread_rng();
 		let a0 = {
 			let a: $ty = rng.gen();
-			if a % 2 == 0 {
-				a + 1
-			} else {
-				a
-				}
+			if a % 2 == 0 { a + 1 } else { a }
 			};
 		let a1 = {
 			let mut a1 = a0;
