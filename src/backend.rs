@@ -9,9 +9,7 @@ mod support;
 mod translation;
 
 use crate::frontend::syntax::TranslationUnit;
-use support::{
-	FunctionIdentifier, NameBindingEnvironment, SimpleTypedIdentifier, TypeBindingEnvironment,
-};
+use support::{FunctionIdentifier, NameBindingEnvironment, SimpleTypedIdentifier, TypeBindingEnvironment};
 
 // an abstract machine that runs Cranelift IR
 pub struct AbstractMachine<'s, B: Backend> {
@@ -43,7 +41,5 @@ impl<'s, B: Backend> AbstractMachine<'s, B> {
 		}
 	}
 
-	pub fn finish(self) -> B::Product {
-		self.module.finish()
-	}
+	pub fn finish(self) -> B::Product { self.module.finish() }
 }

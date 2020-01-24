@@ -42,7 +42,9 @@
 \lstset{basicstyle=\small\ttfamily,showspaces=false,frame=tb}
 \lstloadlanguages{C,C++,[x86masm]Assembler}
 
-\usepackage{cleveref}
+% \usepackage{cleveref}
+% \usepackage{adjustbox}
+\usepackage[strict]{changepage}
 
 \begin{document}
 %
@@ -83,41 +85,109 @@
 %
 %
 \section{Introduction}
-An important step in binary code \emph{decompilation}~\cite{cifuentes_reverse_1994} is to detect high-level objects (e.g. functions,
-variables) from low-level machine dependent objects~\cite{balakrishnan_divine_2007} (e.g. registers, raw memory accesses, machine
+An important step in binary code \emph{decompilation}~\cite{cifuentes_reverse_1994} is to
+detect high-level objects (e.g. functions, variables) from low-level machine dependent
+objects~\cite{balakrishnan_divine_2007} (e.g. registers, raw memory accesses, machine
 instructions) before annotate them with types of the supposed original language. Because
-most of information about high-level types is lost in compilation, the binary code \emph{type reconstruction}
-requires special techniques, a survey up until 2015 can be
+most of information about high-level types is lost in compilation, the binary code
+\emph{type reconstruction} requires special techniques, a survey up until 2015 can be
 referenced in~\cite{caballero_type_2016}.
 
-In the opposite direction, binary code \emph{obfuscation} is to make
-the decompilation (or in general code analysis) harder. Since the data and control flow are principal elements for the program analysis,
-current obfuscation techniques~\cite{collberg_surreptitious_2009} focus mostly on hiding them.
-But to the best of our knowledge, there is still no explicit effort in hiding high-level types.
-There would be several reasons for this lack of effort.
+In the opposite direction, binary code \emph{obfuscation} is to make the decompilation (or in
+general code analysis) harder. Since the data and control flow are principal elements for the
+program analysis, current obfuscation techniques~\cite{collberg_surreptitious_2009} focus mostly
+on hiding them. But to the best of our knowledge, there is still no explicit effort in hiding
+high-level types. There would be several reasons for this lack of effort.
 
-\emph{First}, type obfuscation can be an indirect effect of data or control flow obfuscation.
+\emph{First}, type obfuscation can be obtained as side effects of data or control flow obfuscation.
 Indeed, type reconstruction algorithms need both data and control flow to build type constraints,
 if any of them is hidden
-then the algorithms will not work. Or if the function boundary cannot be found
+then the algorithms cannot work correctly. Or if the function boundary cannot be found
 (because of anti-disassembing tricks, for example), then there are no inputs (i.e. high-level
 objects) for type reconstruction. \emph{Second}, high-level types seem too coarse to be worthy
 of being protected, in many cases just knowing certain values of the input which make the program
-exploitable is enough. But knowledge about types enlarges attack surfaces because more analysis
+exploitable is enough. But knowledge about types expands attack surfaces because more analysis
 can be proceeded, beside decompilation see the survey~\cite{caballero_type_2016} for a
 more complete list.
 % We exploit the \emph{semantics gap}
 
 
 \section{Type flattening compiler}
+We present \emph{uCc}, an open source C compiler that explicitly obfuscates high-level types.
+Our effort is to attack the core of type reconstruction algorithms,
+that is the data flow used to build type constraints, and the \emph{semantic gap} between types in the high-level language and their
+representations in low-level machine code. For that purpose, \emph{uCc} uses extensively
+obfuscation transformations based on Mixed Boolean Arithmetic expressions~\cite{eyrolles_obfuscation_2017,zhou_information_2007}.
+To increase code diversity, it is a \emph{probabilistic} compiler: given the source
+code, \emph{uCc} generates each time a different (but computationally equivalent) output machine code.
 
-We introduce \emph{ucc}, a proof-of-concept C compiler that explicitly obfuscates high-level types.
-We attacks on the core of type reconstruction algorithms, that is the data flow used to build
-type constraints, and the \emph{semantic gap} between types in the high-level language and their
-representations in low-level machine code.
+The compiler is implemented in Rust, uses \emph{cranelift}~\cite{noauthor_cranelift_nodate} as
+backend. The source code and a short user guide are at (cite). We test outputs of
+\emph{uCc} against decent decompilers, table~\ref{flattening} show experimental results
 
-The compiler is open source and implemented in Rust. The source code, an user guide as well as some
-demo results are available at (cite).
+\begin{table}
+	\begin{center}
+		\caption{Functions and original types}
+		\begin{tabular}{|l|l|}
+			\hline
+			Description & Function type \\
+			\hline
+			identity & \texttt{int id(int)} \\
+			\hline
+			division & \texttt{int div(short, char)} \\
+			\hline
+			modular & \texttt{int mod(int)} \\
+			\hline
+			increase pointer then dereference & \texttt{int inc\_deref(int*)} \\
+			\hline
+		\end{tabular}
+	\end{center}
+\end{table}
+
+
+\begin{table}
+	\begin{adjustwidth}{-6.21in}{-5.95in}
+		\begin{center}
+			% \centering
+			\caption{Type flattening effect}\label{flattening}
+			% \begin{adjustbox}{max width=1.5\textwidth}
+			\begin{tabular}{|l|l|l|l|l|}
+				\hline
+				Original type & Hex-Rays & JEB & Ghidra & Snowman \\
+				\hline
+				\texttt{int id(int)} & \texttt{int64 id(int64)} & \texttt{ulong id(ulong)} &
+				\texttt{ulong id(void)} & \texttt{int64 id(int64)} \\
+				\hline
+				\texttt{short div(short, char)} & \texttt{int64 div(uint64, uint64)} & \texttt{div\_t div(int, int)} &
+				\texttt{div\_t div(int, int)} & \texttt{int64\_t div(int64, int64)} \\
+				\hline
+				\texttt{char mod(short, char)} & \texttt{int64 mod(int64, int64)} & \texttt{ulong mod(ulong, ulong)} &
+				\texttt{ulong mod(void)} & \texttt{int64 mod(int64, int64)} \\
+				\hline
+				\texttt{int inc\_deref(int*)} & \texttt{int64 inc\_deref(int64)} & \texttt{ulong inc\_deref(ulong)} &
+				\texttt{ulong inc\_deref(undefined8)} & \texttt{int64 inc\_deref(uint64)} \\
+				\hline
+			\end{tabular}
+		\end{center}
+	\end{adjustwidth}
+\end{table}
+
+
+% \begin{table}
+% \caption{Table captions should be placed above the
+% tables.}\label{tab1}
+% \begin{tabular}{|l|l|l|}
+% \hline
+% Heading level &  Example & Font size and style\\
+% \hline
+% Title (centered) &  {\Large\bfseries Lecture Notes} & 14 point, bold\\
+% 1st-level heading &  {\large\bfseries 1 Introduction} & 12 point, bold\\
+% 2nd-level heading & {\bfseries 2.1 Printing Area} & 10 point, bold\\
+% 3rd-level heading & {\bfseries Run-in Heading in Bold.} Text follows & 10 point, bold\\
+% 4th-level heading & {\itshape Lowest Level Heading.} Text follows & 10 point, italic\\
+% \hline
+% \end{tabular}
+% \end{table}
 
 % \section{Introduction}
 % Binary code type recovery is to restore high-level type information of variables,

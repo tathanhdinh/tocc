@@ -11,9 +11,8 @@ use crate::{
 	frontend::{
 		semantics::Environment,
 		syntax::{
-			BinaryOperator, BinaryOperatorExpression, Constant, Declaration, Declarator,
-			Expression, Identifier, StructType, TypeSpecifier, UnaryOperator,
-			UnaryOperatorExpression,
+			BinaryOperator, BinaryOperatorExpression, Constant, Declaration, Declarator, Expression, Identifier, StructType, TypeSpecifier,
+			UnaryOperator, UnaryOperatorExpression,
 		},
 	},
 };
@@ -22,6 +21,7 @@ use crate::{
 pub enum ConcreteValue {
 	ConstantTy(i64),
 	ValueTy(Value),
+	#[allow(unused)]
 	StackSlotTy(StackSlot),
 	Unit,
 }
@@ -33,7 +33,7 @@ pub struct SimpleTypedConcreteValue<'a> {
 }
 // EaC 7.7.1 Understanding Structure Layout
 // DRAGON 6.3.4 Storage Layouts for Local Names
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AggregateType<'a> {
 	pub fields: Vec<(&'a str, Type)>,
 }
@@ -56,9 +56,7 @@ impl AggregateType<'_> {
 		Some(*fty)
 	}
 
-	pub fn bytes(&self) -> usize {
-		self.fields.iter().fold(0usize, |sum, (_, fty)| sum + fty.bytes() as usize)
-	}
+	pub fn bytes(&self) -> usize { self.fields.iter().fold(0usize, |sum, (_, fty)| sum + fty.bytes() as usize) }
 }
 
 impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
@@ -69,22 +67,20 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 		let fields: Vec<(&str, Type)> = declarations
 			.iter()
 			.map(|Declaration { specifier, declarator }| {
-				checked_if_let!(Some(Declarator { ident: Identifier(ident), .. }), declarator, {
-					(*ident, specifier.into())
-				})
+				checked_if_let!(Some(Declarator { ident: Identifier(ident), .. }), declarator, { (*ident, specifier.into()) })
 			})
 			.collect();
 		AggregateType { fields }
 	}
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionType {
 	pub return_ty: Option<Type>,
 	pub param_ty: Vec<Type>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EffectiveType<'a> {
 	PrimitiveTy(Type),
 	AggregateTy(AggregateType<'a>),
@@ -160,7 +156,7 @@ pub fn evaluate_constant_arithmetic_expression(expr: &'_ Expression) -> Option<i
 				PreIncrement => Some(val + 1),
 				PostIncrement => Some(val),
 				Address => None,
-				Indirection => unsafe { unreachable_unchecked() }
+				Indirection => unsafe { unreachable_unchecked() },
 			}
 		}
 

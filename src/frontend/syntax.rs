@@ -3,9 +3,7 @@ use std::hint::unreachable_unchecked;
 
 use crate::error;
 
-const KEYWORDS: &'_ [&'_ str] = &[
-	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void",
-];
+const KEYWORDS: &'_ [&'_ str] = &["if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void"];
 
 #[derive(Clone, Debug)]
 pub enum UnaryOperator {
@@ -40,6 +38,9 @@ pub enum BinaryOperator {
 	SubtractionAssignment,
 	MultiplicationAssignment,
 	DivisionAssignment,
+	BitwiseAnd,
+	BitwiseXor,
+	BitwiseOr,
 }
 
 #[derive(Clone, Debug)]
@@ -52,15 +53,11 @@ pub enum MemberOperator {
 pub struct Integer(pub i64);
 
 impl Into<i64> for &'_ Integer {
-	fn into(self) -> i64 {
-		self.0
-	}
+	fn into(self) -> i64 { self.0 }
 }
 
 impl Into<i64> for Integer {
-	fn into(self) -> i64 {
-		self.0
-	}
+	fn into(self) -> i64 { self.0 }
 }
 
 #[derive(Clone, Debug)]
@@ -305,6 +302,28 @@ peg::parser! {grammar parser() for str {
 				operator: BinaryOperator::DivisionAssignment,
 				lhs: Box::new(a),
 				rhs: Box::new(b),
+			})
+		}
+		--
+		a:(@) blank()* "&" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::BitwiseAnd,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
+		a:(@) blank()* "^" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::BitwiseXor,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
+		a:(@) blank()* "|" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::BitwiseOr,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
 			})
 		}
 		--
@@ -627,11 +646,7 @@ peg::parser! {grammar parser() for str {
 // pub fn parse(src_file: impl AsRef<Path>) -> TranslationUnit {
 pub fn parse(src_code: &str) -> TranslationUnit {
 	// let src_code = fs::read_to_string(src_file).expect("Failed to read source code file");
-	if let Ok(tu) = parser::translation_unit(&src_code) {
-		tu
-	} else {
-		panic!("failed to parse source code")
-	}
+	if let Ok(tu) = parser::translation_unit(&src_code) { tu } else { panic!("failed to parse source code") }
 }
 
 // pub fn function_name(tu: &TranslationUnit) -> &str {
