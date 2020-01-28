@@ -46,7 +46,7 @@ macro_rules! checked_match {
 		match $expr {
 			$pat => $block,
 			// _ => unsafe { unreachable_unchecked() },
-			_ => semantically_unreachable!()
+			_ => semantically_unreachable!(),
 			}
 	};
 }

@@ -421,7 +421,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			};
 
 			let pv = checked_unwrap_option!(self.uextend(val_ty, pv));
-			partitioned_values.push(self.logical_shl_imm(pv, offset));
+			partitioned_values.push(self.shl_imm(pv, offset));
 
 			offset += ty.bits() as i32;
 		}
@@ -1054,6 +1054,9 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					BitwiseXor => checked_if_let!(PrimitiveTy(_), &rhs_ty, { ValueTy(self.bxor_imm(rhs_val, lhs_val)) }),
 					BitwiseOr => checked_if_let!(PrimitiveTy(_), &rhs_ty, { ValueTy(self.bor_imm(rhs_val, lhs_val)) }),
 
+					BitwiseLeftShift => ValueTy(self.shl(self.iconst(types::I64, lhs_val), rhs_val)),
+					BitwiseRightShift => ValueTy(self.arithmetic_shr(self.iconst(types::I64, lhs_val), rhs_val)),
+
 					Less => ValueTy(self.icmp_imm(IntCC::SignedGreaterThan, rhs_val, lhs_val)),
 					LessOrEqual => ValueTy(self.icmp_imm(IntCC::SignedGreaterThanOrEqual, rhs_val, lhs_val)),
 					Greater => ValueTy(self.icmp_imm(IntCC::SignedLessThan, rhs_val, lhs_val)),
@@ -1238,6 +1241,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					BitwiseAnd => ValueTy(self.band(lhs_val, rhs_val)),
 					BitwiseOr => ValueTy(self.bor(lhs_val, rhs_val)),
 					BitwiseXor => ValueTy(self.bxor(lhs_val, rhs_val)),
+					BitwiseLeftShift => ValueTy(self.shl(lhs_val, rhs_val)),
+					BitwiseRightShift => ValueTy(self.arithmetic_shr(lhs_val, rhs_val)),
 
 					Less => ValueTy(self.icmp(IntCC::SignedLessThan, lhs_val, rhs_val)),
 					LessOrEqual => ValueTy(self.icmp(IntCC::SignedLessThanOrEqual, lhs_val, rhs_val)),
@@ -1630,19 +1635,27 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.iadd(lhs, rhs)
 	}
 
-	fn ineg(&self, x: Value) -> Value { self.func_builder.borrow_mut().ins().ineg(x) }
+	fn ineg(&'_ self, x: Value) -> Value { self.func_builder.borrow_mut().ins().ineg(x) }
 
-	fn bconst(&self, bty: Type, n: impl Into<bool>) -> Value { self.func_builder.borrow_mut().ins().bconst(bty, n) }
+	fn bconst(&'_ self, bty: Type, n: impl Into<bool>) -> Value { self.func_builder.borrow_mut().ins().bconst(bty, n) }
 
-	fn icmp(&self, cond: impl Into<IntCC>, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().icmp(cond, x, y) }
+	fn icmp(&'_ self, cond: impl Into<IntCC>, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().icmp(cond, x, y) }
 
-	fn icmp_imm(&self, cond: impl Into<IntCC>, x: Value, y: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().icmp_imm(cond, x, y.into()) }
+	fn icmp_imm(&'_ self, cond: impl Into<IntCC>, x: Value, y: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().icmp_imm(cond, x, y.into()) }
 
 	fn inst_result(&'_ self, inst: Inst) -> Value { self.func_builder.borrow().inst_results(inst)[0] }
 
+	fn logical_shr(&'_ self, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().ushr(x, y) }
+
 	fn logical_shr_imm(&'_ self, x: Value, y: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().ushr_imm(x, y.into()) }
 
-	fn logical_shl_imm(&'_ self, x: Value, y: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().ishl_imm(x, y.into()) }
+	fn arithmetic_shr(&'_ self, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().sshr(x, y) }
+
+	fn arithmetic_shr_imm(&'_ self, x: Value, y: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().sshr_imm(x, y.into()) }
+
+	fn shl(&'_ self, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().ishl(x, y) }
+
+	fn shl_imm(&'_ self, x: Value, y: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().ishl_imm(x, y.into()) }
 
 	fn band(&'_ self, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().band(x, y) }
 

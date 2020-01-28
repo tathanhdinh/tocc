@@ -13,9 +13,7 @@ use super::{
 	support::{AggregateType, EffectiveType, FunctionIdentifier, FunctionType, NameBindingEnvironment, SimpleTypedIdentifier, TypeBindingEnvironment},
 };
 
-pub fn compile<'clif, 'tcx>(
-	tu: &'tcx TranslationUnit, module: &'clif mut Module<impl Backend>, name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ mut TypeBindingEnvironment<'tcx>,
-) -> Vec<(FuncId, usize)> {
+pub fn compile<'clif, 'tcx>(tu: &'tcx TranslationUnit, module: &'clif mut Module<impl Backend>, name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ mut TypeBindingEnvironment<'tcx>) -> Vec<(FuncId, usize)> {
 	use ExternalDeclaration::*;
 	use TypeSpecifier::*;
 
@@ -36,13 +34,7 @@ pub fn compile<'clif, 'tcx>(
 
 				let func_id = checked_unwrap_result!(module.declare_function(fname, Linkage::Export, &ctxt.func.signature));
 
-				name_env.bind(
-					fname,
-					SimpleTypedIdentifier::FunctionIdent(FunctionIdentifier {
-						ident: func_id,
-						ty: EffectiveType::FunctionTy(FunctionType { return_ty, param_ty: param_ty.clone() }),
-					}),
-				);
+				name_env.bind(fname, SimpleTypedIdentifier::FunctionIdent(FunctionIdentifier { ident: func_id, ty: EffectiveType::FunctionTy(FunctionType { return_ty, param_ty: param_ty.clone() }) }));
 
 				let func = translate_function(func_def, func_id, return_ty, &param_ty, pointer_ty, &mut ctxt, module, name_env, type_env);
 				sfuncs.push(func);

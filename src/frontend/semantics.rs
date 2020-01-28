@@ -2,11 +2,7 @@
 
 use std::{borrow::Borrow, cmp, collections::HashMap, hash::Hash, hint::unreachable_unchecked, i16, i32, i64, i8, marker::PhantomData};
 
-use super::syntax::{
-	BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration, Declarator, DerivedDeclarator, Expression, ExternalDeclaration, FunctionDeclarator,
-	FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement, StructType, TranslationUnit, TypeSpecifier, UnaryOperator,
-	UnaryOperatorExpression,
-};
+use super::syntax::{BinaryOperator, BinaryOperatorExpression, CallExpression, Constant, Declaration, Declarator, DerivedDeclarator, Expression, ExternalDeclaration, FunctionDeclarator, FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement, StructType, TranslationUnit, TypeSpecifier, UnaryOperator, UnaryOperatorExpression};
 
 use crate::{checked_match, checked_unwrap_option, error, semantically_unreachable, unimpl};
 
@@ -315,7 +311,7 @@ impl<'a> SimpleType<'a> {
 						_ => error!("invalid operation"),
 					},
 
-					BitwiseAnd | BitwiseXor | BitwiseOr => match (lhs_ty, rhs_ty) {
+					BitwiseAnd | BitwiseXor | BitwiseOr | BitwiseLeftShift | BitwiseRightShift => match (lhs_ty, rhs_ty) {
 						(PrimitiveTy(lhs_ty), PrimitiveTy(rhs_ty)) => PrimitiveTy(cmp::max(lhs_ty, rhs_ty)),
 						_ => error!("invalid operation"),
 					},

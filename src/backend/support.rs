@@ -10,10 +10,7 @@ use crate::{
 	checked_if_let, checked_unwrap_option,
 	frontend::{
 		semantics::Environment,
-		syntax::{
-			BinaryOperator, BinaryOperatorExpression, Constant, Declaration, Declarator, Expression, Identifier, StructType, TypeSpecifier,
-			UnaryOperator, UnaryOperatorExpression,
-		},
+		syntax::{BinaryOperator, BinaryOperatorExpression, Constant, Declaration, Declarator, Expression, Identifier, StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression},
 	},
 };
 
@@ -64,12 +61,7 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 		// struct type definition: each declaration is a field declaration
 		let StructType { declarations, .. } = self;
 		let declarations = checked_unwrap_option!(declarations.as_ref());
-		let fields: Vec<(&str, Type)> = declarations
-			.iter()
-			.map(|Declaration { specifier, declarator }| {
-				checked_if_let!(Some(Declarator { ident: Identifier(ident), .. }), declarator, { (*ident, specifier.into()) })
-			})
-			.collect();
+		let fields: Vec<(&str, Type)> = declarations.iter().map(|Declaration { specifier, declarator }| checked_if_let!(Some(Declarator { ident: Identifier(ident), .. }), declarator, { (*ident, specifier.into()) })).collect();
 		AggregateType { fields }
 	}
 }

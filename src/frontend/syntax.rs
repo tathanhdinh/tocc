@@ -41,6 +41,8 @@ pub enum BinaryOperator {
 	BitwiseAnd,
 	BitwiseXor,
 	BitwiseOr,
+	BitwiseLeftShift,
+	BitwiseRightShift,
 }
 
 #[derive(Clone, Debug)]
@@ -322,6 +324,20 @@ peg::parser! {grammar parser() for str {
 		a:(@) blank()* "|" blank()* b:@ {
 			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
 				operator: BinaryOperator::BitwiseOr,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
+		a:(@) blank()* "<<" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::BitwiseLeftShift,
+				lhs: Box::new(a),
+				rhs: Box::new(b)
+			})
+		}
+		a:(@) blank()* ">>" blank()* b:@ {
+			Expression::BinaryOperatorExpr(BinaryOperatorExpression {
+				operator: BinaryOperator::BitwiseRightShift,
 				lhs: Box::new(a),
 				rhs: Box::new(b)
 			})
