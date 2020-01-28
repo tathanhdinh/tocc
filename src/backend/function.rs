@@ -18,18 +18,11 @@ use cranelift_module::{Backend, FuncId, Module};
 
 use crate::{
 	checked_if_let, checked_match, checked_unwrap_option,
-	frontend::syntax::{
-		BinaryOperator, BinaryOperatorExpression, CallExpression, Declaration, Declarator, DerivedDeclarator, DoWhileStatement, Expression, ForStatement, FunctionDeclarator,
-		FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement, StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression,
-		WhileStatement,
-	},
+	frontend::syntax::{BinaryOperator, BinaryOperatorExpression, CallExpression, Declaration, Declarator, DerivedDeclarator, DoWhileStatement, Expression, ForStatement, FunctionDeclarator, FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement, StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression, WhileStatement},
 	generate_random_maps, semantically_unreachable, unimpl,
 };
 
-use super::support::{
-	evaluate_constant_arithmetic_expression, generate_random_partition, AggregateIdentifier, AggregateType, ConcreteValue, EffectiveType, FunctionIdentifier, FunctionType,
-	NameBindingEnvironment, PointerIdentifer, PrimitiveIdentifier, SimpleTypedConcreteValue, SimpleTypedIdentifier, TypeBindingEnvironment,
-};
+use super::support::{evaluate_constant_arithmetic_expression, generate_random_partition, AggregateIdentifier, AggregateType, ConcreteValue, EffectiveType, FunctionIdentifier, FunctionType, NameBindingEnvironment, PointerIdentifer, PrimitiveIdentifier, SimpleTypedConcreteValue, SimpleTypedIdentifier, TypeBindingEnvironment};
 
 static NEW_VAR_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -70,7 +63,7 @@ pub fn get_function_signature(func_def: &'_ FunctionDefinition<'_>, pointer_ty: 
 				match specifier {
 					CharTy | ShortTy | IntTy | LongTy => specifier.into(),
 					StructTy(_) => todo!(),
-					VoidTy => unsafe { unreachable_unchecked() },
+					VoidTy => semantically_unreachable!(),
 				}
 			}
 		})
@@ -236,10 +229,7 @@ fn create_entry_ebb(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty: 
 	entry_ebb
 }
 
-fn declare_parameter_variables<'tcx>(
-	func_def: &'_ FunctionDefinition<'tcx>, fb: &'_ mut FunctionBuilder, entry_ebb: Ebb, pointer_ty: Type, name_env: &'_ mut NameBindingEnvironment<'tcx>,
-	type_env: &'_ TypeBindingEnvironment<'tcx>,
-) {
+fn declare_parameter_variables<'tcx>(func_def: &'_ FunctionDefinition<'tcx>, fb: &'_ mut FunctionBuilder, entry_ebb: Ebb, pointer_ty: Type, name_env: &'_ mut NameBindingEnvironment<'tcx>, type_env: &'_ TypeBindingEnvironment<'tcx>) {
 	use EffectiveType::*;
 	use TypeSpecifier::*;
 
@@ -258,10 +248,7 @@ fn declare_parameter_variables<'tcx>(
 						DerivedDeclarator::Pointer => {
 							let new_var = declare_variable(fb, pointer_ty, Some(param_val));
 
-							name_env.bind(
-								var_name,
-								SimpleTypedIdentifier::PointerIdent(PointerIdentifer { ident: new_var, ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))) }),
-							);
+							name_env.bind(var_name, SimpleTypedIdentifier::PointerIdent(PointerIdentifer { ident: new_var, ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))) }));
 						}
 					}
 				} else {
@@ -290,10 +277,7 @@ fn declare_parameter_variables<'tcx>(
 	}
 }
 
-pub fn translate_function<'clif, 'tcx>(
-	func_def: &'tcx FunctionDefinition<'tcx>, func_id: FuncId, return_ty: Option<Type>, param_ty: &'_ [Type], pointer_ty: Type, ctxt: &'clif mut Context,
-	module: &'clif mut Module<impl Backend>, outer_name_env: &'_ NameBindingEnvironment<'tcx>, outer_type_env: &'_ TypeBindingEnvironment<'tcx>,
-) -> (FuncId, usize) {
+pub fn translate_function<'clif, 'tcx>(func_def: &'tcx FunctionDefinition<'tcx>, func_id: FuncId, return_ty: Option<Type>, param_ty: &'_ [Type], pointer_ty: Type, ctxt: &'clif mut Context, module: &'clif mut Module<impl Backend>, outer_name_env: &'_ NameBindingEnvironment<'tcx>, outer_type_env: &'_ TypeBindingEnvironment<'tcx>) -> (FuncId, usize) {
 	let FunctionDefinition { body, .. } = func_def;
 
 	let mut func_builder_ctxt = FunctionBuilderContext::new();
@@ -571,13 +555,12 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					}
 				} else {
 					match specifier {
-						VoidTy => unsafe { unreachable_unchecked() },
+						VoidTy => semantically_unreachable!(),
 						_ => {
 							new_var_ty = specifier.into();
 							new_var = declare_variable(self.func_builder.get_mut(), new_var_ty, None);
 
-							self.name_env
-								.bind(var_name, SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier { ident: new_var, ty: EffectiveType::PrimitiveTy(new_var_ty) }));
+							self.name_env.bind(var_name, SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier { ident: new_var, ty: EffectiveType::PrimitiveTy(new_var_ty) }));
 						}
 					}
 				}
@@ -587,7 +570,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					let init_val = match val {
 						ConstantTy(val) => self.iconst(new_var_ty, val),
 						ValueTy(val) => self.cast_value(new_var_ty, val),
-						_ => unsafe { unreachable_unchecked() },
+						_ => semantically_unreachable!(),
 					};
 					self.def_var(new_var, init_val);
 				}
@@ -647,7 +630,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		let cond = match val {
 			ConstantTy(c) => self.iconst(types::I64, c),
 			ValueTy(v) => v,
-			_ => unsafe { unreachable_unchecked() },
+			_ => semantically_unreachable!(),
 		};
 		self.insert_brz(cond, exit_ebb);
 		self.insert_jmp(loop_ebb);
@@ -674,7 +657,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		let cond = match val {
 			ConstantTy(c) => self.iconst(types::I64, c),
 			ValueTy(v) => v,
-			_ => unsafe { unreachable_unchecked() },
+			_ => semantically_unreachable!(),
 		};
 		self.insert_brz(cond, exit_ebb);
 		self.insert_jmp(loop_ebb);
@@ -731,7 +714,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		let cond = match val {
 			ConstantTy(c) => self.iconst(types::I64, c),
 			ValueTy(v) => v,
-			_ => unsafe { unreachable_unchecked() },
+			_ => semantically_unreachable!(),
 		};
 		self.insert_brz(cond, exit_ebb);
 		self.insert_jmp(loop_ebb);
@@ -759,7 +742,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		let cond = match val {
 			ConstantTy(c) => self.iconst(types::I64, c),
 			ValueTy(v) => v,
-			_ => unsafe { unreachable_unchecked() },
+			_ => semantically_unreachable!(),
 		};
 
 		let then_ebb = self.new_ebb();
@@ -863,7 +846,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					val: match val {
 						ConstantTy(rhs) => ConstantTy(-rhs),
 						ValueTy(rhs) => ValueTy(self.ineg(rhs)),
-						_ => unsafe { unreachable_unchecked() },
+						_ => semantically_unreachable!(),
 					},
 					ty,
 				}
@@ -894,7 +877,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						}
 					}),
 
-					_ => unsafe { unreachable_unchecked() },
+					_ => semantically_unreachable!(),
 				}
 
 				// checked_if_let!(PrimitiveIdent(PrimitiveIdentifier { ident, ty }), ident_var, {})
@@ -925,7 +908,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						}
 					}),
 
-					_ => unsafe { unreachable_unchecked() },
+					_ => semantically_unreachable!(),
 				}
 			}),
 
@@ -964,7 +947,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 									})
 								}),
 
-								_ => unsafe { unreachable_unchecked() },
+								_ => semantically_unreachable!(),
 							}
 						}
 
@@ -972,7 +955,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					}
 				}
 
-				_ => unsafe { unreachable_unchecked() },
+				_ => semantically_unreachable!(),
 			},
 
 			Indirection => match operand.as_ref() {
@@ -996,9 +979,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
-	fn translate_binary_operator_expression(
-		&'_ mut self, BinaryOperatorExpression { operator, lhs, rhs }: &'_ BinaryOperatorExpression<'tcx>,
-	) -> SimpleTypedConcreteValue<'tcx> {
+	fn translate_binary_operator_expression(&'_ mut self, BinaryOperatorExpression { operator, lhs, rhs }: &'_ BinaryOperatorExpression<'tcx>) -> SimpleTypedConcreteValue<'tcx> {
 		use BinaryOperator::*;
 		use ConcreteValue::*;
 		use EffectiveType::*;
@@ -1030,7 +1011,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					Equal => ValueTy(self.bconst(types::I64, lhs == rhs)),
 					NotEqual => ValueTy(self.bconst(types::I64, lhs != rhs)),
 
-					Assignment | AdditionAssignment | SubtractionAssignment | MultiplicationAssignment | DivisionAssignment => unsafe { unreachable_unchecked() },
+					Assignment | AdditionAssignment | SubtractionAssignment | MultiplicationAssignment | DivisionAssignment => semantically_unreachable!(),
 				};
 				let ty = PrimitiveTy(if lhs_ty.bytes() > rhs_ty.bytes() { lhs_ty } else { rhs_ty });
 				SimpleTypedConcreteValue { val, ty }
@@ -1080,7 +1061,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					Equal => ValueTy(self.icmp_imm(IntCC::Equal, rhs_val, lhs_val)),
 					NotEqual => ValueTy(self.icmp_imm(IntCC::NotEqual, rhs_val, lhs_val)),
 
-					Assignment | AdditionAssignment | SubtractionAssignment | MultiplicationAssignment | DivisionAssignment => unsafe { unreachable_unchecked() },
+					Assignment | AdditionAssignment | SubtractionAssignment | MultiplicationAssignment | DivisionAssignment => semantically_unreachable!(),
 				};
 
 				SimpleTypedConcreteValue { val, ty: rhs_ty }
@@ -1225,9 +1206,35 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					Multiplication => ValueTy(self.iadd(lhs_val, rhs_val)),
 					Division => ValueTy(self.idiv(lhs_val, rhs_val)),
 					Remainder => ValueTy(self.srem(lhs_val, rhs_val)),
-					Addition => ValueTy(self.blur_iadd(lhs_val, rhs_val)),
-					Subtraction => ValueTy(self.isub(lhs_val, rhs_val)),
 
+					Addition => match (&lhs_ty, &rhs_ty) {
+						(PrimitiveTy(_), PrimitiveTy(_)) => ValueTy(self.blur_iadd(lhs_val, rhs_val)),
+
+						(PointerTy(pty), PrimitiveTy(_)) => match pty.as_ref() {
+							PrimitiveTy(ty) => ValueTy(self.blur_iadd(lhs_val, self.blur_imul_imm(rhs_val, ty.bytes() as i64))),
+							_ => todo!(),
+						},
+
+						(PrimitiveTy(_), PointerTy(pty)) => match pty.as_ref() {
+							PrimitiveTy(ty) => ValueTy(self.blur_iadd(rhs_val, self.blur_imul_imm(lhs_val, ty.bytes() as i64))),
+							_ => todo!(),
+						},
+
+						_ => semantically_unreachable!(),
+					},
+
+					Subtraction => match (&lhs_ty, &rhs_ty) {
+						(PrimitiveTy(_), PrimitiveTy(_)) => ValueTy(self.blur_isub(lhs_val, rhs_val)),
+
+						(PointerTy(pty), PrimitiveTy(_)) => match pty.as_ref() {
+							PrimitiveTy(ty) => ValueTy(self.blur_isub(lhs_val, self.blur_imul_imm(rhs_val, ty.bytes() as i64))),
+							_ => todo!(),
+						},
+
+						_ => semantically_unreachable!(),
+					},
+
+					// Subtraction => ValueTy(self.isub(lhs_val, rhs_val)),
 					BitwiseAnd => ValueTy(self.band(lhs_val, rhs_val)),
 					BitwiseOr => ValueTy(self.bor(lhs_val, rhs_val)),
 					BitwiseXor => ValueTy(self.bxor(lhs_val, rhs_val)),
@@ -1329,6 +1336,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 							let ty = if lty.bytes() > rty.bytes() { lhs_ty } else { rhs_ty };
 							SimpleTypedConcreteValue { val, ty }
 						}
+						(PointerTy(_), PrimitiveTy(_)) => SimpleTypedConcreteValue { val, ty: lhs_ty },
+						(PrimitiveTy(_), PointerTy(_)) => SimpleTypedConcreteValue { val, ty: rhs_ty },
 						_ => todo!(),
 					},
 				}
@@ -1348,9 +1357,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
-	fn translate_member_expression(
-		&'_ self, MemberExpression { expression, identifier: Identifier(field_name), operator }: &'_ MemberExpression<'tcx>,
-	) -> SimpleTypedConcreteValue<'tcx> {
+	fn translate_member_expression(&'_ self, MemberExpression { expression, identifier: Identifier(field_name), operator }: &'_ MemberExpression<'tcx>) -> SimpleTypedConcreteValue<'tcx> {
 		use ConcreteValue::*;
 		use EffectiveType::*;
 		use Expression::*;
@@ -1389,7 +1396,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					})
 				}
 
-				_ => unsafe { unreachable_unchecked() },
+				_ => semantically_unreachable!(),
 			}
 		} else {
 			unimpl!("unhandled expression for assignment")
@@ -1405,11 +1412,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		let func = self.name_env.get_unchecked(func_name).clone();
 		match func {
 			FunctionIdent(FunctionIdentifier { ty: FunctionTy(FunctionType { return_ty, param_ty }), ident }) => {
-				let sig = Signature {
-					params: param_ty.iter().map(|_| AbiParam::new(self.pointer_ty)).collect(),
-					returns: if return_ty.is_some() { vec![AbiParam::new(self.pointer_ty)] } else { vec![] },
-					call_conv: isa::CallConv::SystemV,
-				};
+				let sig = Signature { params: param_ty.iter().map(|_| AbiParam::new(self.pointer_ty)).collect(), returns: if return_ty.is_some() { vec![AbiParam::new(self.pointer_ty)] } else { vec![] }, call_conv: isa::CallConv::SystemV };
 				let sig_ref = self.import_signature(&sig);
 
 				// let callee = checked_unwrap_result!(self.module.declare_function(
@@ -1484,7 +1487,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				IdentifierExpr(ident) => self.translate_identifier_expression(ident),
 				UnaryOperatorExpr(expr) => self.translate_unary_operator_expression(expr),
 				BinaryOperatorExpr(expr) => self.translate_binary_operator_expression(expr),
-				ConstantExpr(_) => unsafe { unreachable_unchecked() },
+				ConstantExpr(_) => semantically_unreachable!(),
 			}
 		}
 	}

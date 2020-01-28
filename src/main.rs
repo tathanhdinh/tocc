@@ -14,36 +14,56 @@ use target_lexicon::triple;
 
 use zydis::{AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer, Signedness};
 
-use structopt::StructOpt;
+use gumdrop::Options;
+// use structopt::StructOpt;
 
 mod backend;
 mod frontend;
 mod helper;
 
-#[derive(StructOpt)]
-#[structopt(name = "tocc", about = "A type-obfuscated C compiler")]
+// #[derive(StructOpt)]
+// #[structopt(name = "tocc", about = "A type-obfuscated C compiler")]
+// struct Opt {
+// 	/// Source code file
+// 	#[structopt(name = "source", parse(from_os_str))]
+// 	src: PathBuf,
+
+// 	#[structopt(name = "output", parse(from_os_str), short = "o")]
+// 	out: Option<PathBuf>,
+
+// 	/// Function
+// 	#[structopt(name = "function", short = "f")]
+// 	fname: Option<String>,
+
+// 	/// JIT compilation
+// 	#[structopt(name = "code generation mode", short = "j")]
+// 	jit: bool,
+// }
+
+#[derive(Options)]
 struct Opt {
-	/// Source code file
-	#[structopt(name = "source", parse(from_os_str))]
-	src: PathBuf,
+	#[options(help = "print usage")]
+	help: bool,
 
-	#[structopt(name = "output", parse(from_os_str), short = "o")]
-	out: Option<PathBuf>,
+	#[options(free, help = "source code file")]
+	src: String,
 
-	/// Function
-	#[structopt(name = "function", short = "f")]
+	#[options(help = "output object file", meta = "output", no_long)]
+	out: Option<String>,
+
+	#[options(help = "function to jit", meta = "function", no_long)]
 	fname: Option<String>,
 
-	/// JIT compilation
-	#[structopt(name = "code generation mode", short = "j")]
+	#[options(help = "jit", no_long)]
 	jit: bool,
 }
 
 fn main() {
-	let opt = Opt::from_args();
-	let src = opt.src.as_path();
+	// let opt = Opt::from_args();
+	let opt = Opt::parse_args_default_or_exit();
+	// let src = opt.src.as_path();
 
-	let src_code = fs::read_to_string(src).expect("failed to read source code file");
+	let src_code = fs::read_to_string(&opt.src).expect("failed to read source code file");
 	let tu = frontend::syntax::parse(src_code.as_str());
 	frontend::semantics::check(&tu);
 
@@ -81,9 +101,10 @@ fn main() {
 	} else {
 		let output = {
 			if let Some(out) = opt.out {
-				checked_unwrap_option!(out.to_str()).to_owned()
+				// checked_unwrap_option!(out.to_str()).to_owned()
+				out
 			} else {
-				let mut src = opt.src;
+				let mut src = PathBuf::from(opt.src);
 				src.set_extension("o");
 				let output = checked_unwrap_option!(src.file_name());
 				checked_unwrap_option!(output.to_str()).to_owned()
