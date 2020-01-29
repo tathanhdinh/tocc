@@ -1003,6 +1003,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					BitwiseAnd => ConstantTy(lhs & rhs),
 					BitwiseXor => ConstantTy(lhs ^ rhs),
 					BitwiseOr => ConstantTy(lhs | rhs),
+					BitwiseLeftShift => ConstantTy(lhs << rhs),
+					BitwiseRightShift => ConstantTy(lhs >> rhs),
 
 					Less => ValueTy(self.bconst(types::B64, lhs < rhs)),
 					LessOrEqual => ValueTy(self.bconst(types::B64, lhs <= rhs)),
@@ -1111,6 +1113,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					BitwiseAnd => checked_if_let!(PrimitiveTy(_), &lhs_ty, { ValueTy(self.band_imm(lhs_val, rhs_val)) }),
 					BitwiseXor => checked_if_let!(PrimitiveTy(_), &lhs_ty, { ValueTy(self.bxor_imm(lhs_val, rhs_val)) }),
 					BitwiseOr => checked_if_let!(PrimitiveTy(_), &lhs_ty, { ValueTy(self.bor_imm(lhs_val, rhs_val)) }),
+					BitwiseLeftShift => checked_if_let!(PrimitiveTy(_), &lhs_ty, { ValueTy(self.shl_imm(lhs_val, rhs_val)) }),
+					BitwiseRightShift => checked_if_let!(PrimitiveTy(_), &lhs_ty, { ValueTy(self.arithmetic_shr_imm(lhs_val, rhs_val)) }),
 
 					Less => ValueTy(self.icmp_imm(IntCC::SignedLessThan, lhs_val, rhs_val)),
 					LessOrEqual => ValueTy(self.icmp_imm(IntCC::SignedLessThanOrEqual, lhs_val, rhs_val)),
@@ -1206,7 +1210,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				let lhs_val = self.blur_value(lhs_val);
 				let rhs_val = self.blur_value(rhs_val);
 				let val = match operator {
-					Multiplication => ValueTy(self.iadd(lhs_val, rhs_val)),
+					Multiplication => ValueTy(self.imul(lhs_val, rhs_val)),
 					Division => ValueTy(self.idiv(lhs_val, rhs_val)),
 					Remainder => ValueTy(self.srem(lhs_val, rhs_val)),
 
@@ -1227,10 +1231,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					},
 
 					Subtraction => match (&lhs_ty, &rhs_ty) {
-						(PrimitiveTy(_), PrimitiveTy(_)) => ValueTy(self.blur_isub(lhs_val, rhs_val)),
+						(PrimitiveTy(_), PrimitiveTy(_)) => ValueTy(self.isub(lhs_val, rhs_val)),
 
 						(PointerTy(pty), PrimitiveTy(_)) => match pty.as_ref() {
-							PrimitiveTy(ty) => ValueTy(self.blur_isub(lhs_val, self.blur_imul_imm(rhs_val, ty.bytes() as i64))),
+							PrimitiveTy(ty) => ValueTy(self.isub(lhs_val, self.blur_imul_imm(rhs_val, ty.bytes() as i64))),
 							_ => todo!(),
 						},
 
@@ -1256,11 +1260,11 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 							IdentifierExpr(Identifier(lhs_var_name)) => {
 								let lhs_var = self.name_env.get_unchecked(lhs_var_name);
 								match lhs_var {
-									PrimitiveIdent(PrimitiveIdentifier { ident: lhs_ident, .. }) => {
+									PrimitiveIdent(PrimitiveIdentifier { ident: lhs_ident, ty: PrimitiveTy(ty) }) => {
 										let new_lhs_val = match operator {
-											Assignment => rhs_val,
+											Assignment => self.cast_value(*ty, rhs_val),
 											AdditionAssignment => self.blur_iadd(lhs_val, rhs_val),
-											SubtractionAssignment => self.blur_isub(lhs_val, rhs_val),
+											SubtractionAssignment => self.isub(lhs_val, rhs_val),
 											MultiplicationAssignment => self.blur_imul(lhs_val, rhs_val),
 											DivisionAssignment => self.idiv(lhs_val, rhs_val),
 											_ => semantically_unreachable!(),
@@ -1284,7 +1288,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											},
 
 											SubtractionAssignment => match lhs_pty.as_ref() {
-												PrimitiveTy(lhs_pty) => self.blur_isub(lhs_val, self.blur_imul_imm(rhs_val, lhs_pty.bytes() as i64)),
+												PrimitiveTy(lhs_pty) => self.isub(lhs_val, self.blur_imul_imm(rhs_val, lhs_pty.bytes() as i64)),
 												_ => todo!(), // pointer to pointer, etc.
 											},
 
@@ -1599,6 +1603,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.func_builder.borrow_mut().ins().isub(x, y)
 	}
 
+	#[allow(dead_code)]
 	fn blur_isub(&'_ self, x: Value, y: Value) -> Value {
 		let neg_y = self.ineg(y);
 		self.blur_iadd(x, neg_y)
@@ -1645,6 +1650,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 	fn inst_result(&'_ self, inst: Inst) -> Value { self.func_builder.borrow().inst_results(inst)[0] }
 
+	#[allow(dead_code)]
 	fn logical_shr(&'_ self, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().ushr(x, y) }
 
 	fn logical_shr_imm(&'_ self, x: Value, y: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().ushr_imm(x, y.into()) }

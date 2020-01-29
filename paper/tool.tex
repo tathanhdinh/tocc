@@ -117,13 +117,16 @@ more complete list.
 
 
 \section{Type flattening compiler}
-We present \emph{uCc}, an open source C compiler that explicitly obfuscates high-level types, its
-objective is to make reconstructing types from machine codes harder.
-It is implemented in Rust, the source code and a brief user guide are given at (cite).
+We present \emph{uCc}, an open source C compiler that explicitly obfuscates high-level types, \emph{uCc}'s
+objective is to make reconstructing C types from machine codes harder.
+The compiler is implemented in Rust, the source code and a brief user guide are given at (cite); different
+from other code obfuscation implementations, \emph{uCc} uses cranelift~\cite{noauthor_cranelift_nodate} as
+backend.
+
 Our effort is to attack the core of type reconstruction algorithms,
 these are the data flow used to build type constraints, and the \emph{semantic gap} between types in the high-level language and their
 representations in the low-level machine code.
-Beside custom tricks, \emph{uCc} uses extensively
+Beside custom tricks which would be fully presented in another paper, \emph{uCc} uses extensively
 obfuscation transformations based on Mixed Boolean Arithmetic expressions~\cite{eyrolles_obfuscation_2017,zhou_information_2007}.
 To make some code diversity, the compiler is \emph{probabilistic}: given a source
 code, \emph{uCc} generates each time a different (but computationally equivalent) output machine code.
@@ -147,20 +150,21 @@ the repository.
 			\hline
 			modular & \texttt{char mod(short, char)} \\
 			\hline
-			increase $p$ then dereference & \texttt{int inc\_deref(int *p)} \\
+			increase $p \leftarrow p + 1$ then dereference & \texttt{int inc\_deref(int *p)} \\
 			\hline
-			strlen  & \texttt{int slen(char*)} \\
+			strlen  & \texttt{int slen(char* s)} \\
 			\hline
 			sum of array $a$ & \texttt{long sum(short *a, int n)} \\
 			\hline
-			$n$-th fibonaci number & \texttt{int fibo(int n)} \\
+			$n$-th fibonaci number (recursive impl.) & \texttt{int fibo(int n)} \\
 			\hline
 			num. of steps until $n \rightsquigarrow 1$ (Collatz's conj.)  & \texttt{int collatz(int n)} \\
+			\hline
+			sdbm hash & \texttt{int sdbm(char *s)} \\
 			\hline
 		\end{tabular}
 	\end{center}
 \end{table}
-
 
 \begin{table}
 	\begin{adjustwidth}{-6.21in}{-5.95in}
@@ -194,6 +198,8 @@ the repository.
 				\hline
 				\texttt{int collatz(int)} & \texttt{int64 collatz(int64)} & \texttt{ulong collatz(ulong)} &
 				\texttt{ulong collatz(undefined8)} & \texttt{int64 collatz(int64)} \\
+				\hline
+				\texttt{int sdbm(char*)} & \texttt{int64 sdbm(uint64)} & jeb & \texttt{ulong sdbm(undefined8)} & sn \\
 				\hline
 			\end{tabular}
 		\end{center}
