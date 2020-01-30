@@ -19,7 +19,7 @@ use cranelift_module::{Backend, FuncId, Module};
 use crate::{
 	checked_if_let, checked_match, checked_unwrap_option,
 	frontend::syntax::{BinaryOperator, BinaryOperatorExpression, CallExpression, Declaration, Declarator, DerivedDeclarator, DoWhileStatement, Expression, ForStatement, FunctionDeclarator, FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement, StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression, WhileStatement},
-	generate_random_maps, semantically_unreachable, unimpl,
+	generate_random_maps, light, semantically_unreachable, unimpl,
 };
 
 use super::support::{evaluate_constant_arithmetic_expression, generate_random_partition, AggregateIdentifier, AggregateType, ConcreteValue, EffectiveType, FunctionIdentifier, FunctionType, NameBindingEnvironment, PointerIdentifer, PrimitiveIdentifier, SimpleTypedConcreteValue, SimpleTypedIdentifier, TypeBindingEnvironment};
@@ -139,6 +139,10 @@ fn blur_bor(fb: &'_ mut FunctionBuilder, x: Value, y: Value) -> Value {
 }
 
 fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
+	if light() {
+		return val;
+	}
+
 	let val_ty = fb.func.dfg.value_type(val);
 	let val_size = val_ty.bytes();
 
@@ -430,6 +434,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	}
 
 	fn blur_value(&'_ self, val: Value) -> Value {
+		if light() {
+			return val;
+		}
+
 		let val_ty = self.value_type(val);
 		let val_size = val_ty.bytes();
 
@@ -1591,12 +1599,12 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 	fn blur_iadd(&'_ self, x: Value, y: Value) -> Value {
 		let (x, y) = self.normalize(x, y);
-		self.iadd(self.bor(x, y), self.band(x, y))
+		if light() { self.iadd(x, y) } else { self.iadd(self.bor(x, y), self.band(x, y)) }
 	}
 
 	fn iadd_imm(&'_ self, x: Value, n: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().iadd_imm(x, n.into()) }
 
-	fn blur_iadd_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value { self.iadd(self.bor_imm(x, y), self.band_imm(x, y)) }
+	fn blur_iadd_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value { if light() { self.iadd_imm(x, y) } else { self.blur_iadd(self.bor_imm(x, y), self.band_imm(x, y)) } }
 
 	fn isub(&'_ self, x: Value, y: Value) -> Value {
 		let (x, y) = self.normalize(x, y);
@@ -1626,18 +1634,26 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	fn imul(&'_ self, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().imul(x, y) }
 
 	fn blur_imul(&'_ self, x: Value, y: Value) -> Value {
-		let lhs = self.imul(self.bor(x, y), self.band(x, y));
-		let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
-		self.iadd(lhs, rhs)
+		if light() {
+			self.imul(x, y)
+		} else {
+			let lhs = self.imul(self.bor(x, y), self.band(x, y));
+			let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
+			self.blur_iadd(lhs, rhs)
+		}
 	}
 
 	fn imul_imm(&'_ self, x: Value, n: impl Into<i64>) -> Value { self.func_builder.borrow_mut().ins().imul_imm(x, n.into()) }
 
 	fn blur_imul_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value {
-		let lhs = self.imul(self.bor_imm(x, y), self.band_imm(x, y));
-		let y = self.iconst(self.value_type(x), y);
-		let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
-		self.iadd(lhs, rhs)
+		if light() {
+			self.imul_imm(x, y)
+		} else {
+			let lhs = self.imul(self.bor_imm(x, y), self.band_imm(x, y));
+			let y = self.iconst(self.value_type(x), y);
+			let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
+			self.blur_iadd(lhs, rhs)
+		}
 	}
 
 	fn ineg(&'_ self, x: Value) -> Value { self.func_builder.borrow_mut().ins().ineg(x) }

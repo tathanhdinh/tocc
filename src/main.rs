@@ -13,9 +13,9 @@ use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
 use target_lexicon::triple;
 
 use zydis::{AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer, Signedness};
-
 use gumdrop::Options;
 // use structopt::StructOpt;
+use once_cell::sync::OnceCell;
 
 mod backend;
 mod frontend;
@@ -51,6 +51,9 @@ struct Opt {
 	#[options(help = "output object file", meta = "output", no_long)]
 	out: Option<String>,
 
+	#[options(help = "lightweight obfuscation", no_long)]
+	light: bool,
+
 	#[options(help = "function to jit", meta = "function", no_long)]
 	fname: Option<String>,
 
@@ -58,10 +61,17 @@ struct Opt {
 	jit: bool,
 }
 
+static LIGHT_BLUR: OnceCell<bool> = OnceCell::new();
+
+pub fn light() -> bool {
+	*LIGHT_BLUR.get_or_init(|| false)
+}
+
 fn main() {
 	// let opt = Opt::from_args();
 	let opt = Opt::parse_args_default_or_exit();
 	// let src = opt.src.as_path();
+	LIGHT_BLUR.set(opt.light).unwrap();
 
 	let src_code = fs::read_to_string(&opt.src).expect("failed to read source code file");
 	let tu = frontend::syntax::parse(src_code.as_str());
