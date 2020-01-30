@@ -12,33 +12,13 @@ use cranelift_faerie::{FaerieBackend, FaerieBuilder, FaerieTrapCollection};
 use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
 use target_lexicon::triple;
 
-use zydis::{AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer, Signedness};
 use gumdrop::Options;
-// use structopt::StructOpt;
 use once_cell::sync::OnceCell;
+use zydis::{AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer, Signedness};
 
 mod backend;
 mod frontend;
 mod helper;
-
-// #[derive(StructOpt)]
-// #[structopt(name = "tocc", about = "A type-obfuscated C compiler")]
-// struct Opt {
-// 	/// Source code file
-// 	#[structopt(name = "source", parse(from_os_str))]
-// 	src: PathBuf,
-
-// 	#[structopt(name = "output", parse(from_os_str), short = "o")]
-// 	out: Option<PathBuf>,
-
-// 	/// Function
-// 	#[structopt(name = "function", short = "f")]
-// 	fname: Option<String>,
-
-// 	/// JIT compilation
-// 	#[structopt(name = "code generation mode", short = "j")]
-// 	jit: bool,
-// }
 
 #[derive(Options)]
 struct Opt {
@@ -63,14 +43,10 @@ struct Opt {
 
 static LIGHT_BLUR: OnceCell<bool> = OnceCell::new();
 
-pub fn light() -> bool {
-	*LIGHT_BLUR.get_or_init(|| false)
-}
+pub fn light() -> bool { *LIGHT_BLUR.get_or_init(|| false) }
 
 fn main() {
-	// let opt = Opt::from_args();
 	let opt = Opt::parse_args_default_or_exit();
-	// let src = opt.src.as_path();
 	LIGHT_BLUR.set(opt.light).unwrap();
 
 	let src_code = fs::read_to_string(&opt.src).expect("failed to read source code file");
@@ -111,7 +87,6 @@ fn main() {
 	} else {
 		let output = {
 			if let Some(out) = opt.out {
-				// checked_unwrap_option!(out.to_str()).to_owned()
 				out
 			} else {
 				let mut src = PathBuf::from(opt.src);
@@ -154,7 +129,6 @@ mod tests {
 
 		let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
 		let mut am = backend::AbstractMachine::<'_, SimpleJITBackend>::new(&tu, builder);
-		// let (_, fptr) = am.compiled_function(fname).unwrap();
 		let (fptr, _) = am.compiled_function(fname).unwrap();
 
 		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn() -> i32>(fptr) };

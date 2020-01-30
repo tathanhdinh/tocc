@@ -659,28 +659,4 @@ peg::parser! {grammar parser() for str {
 		}
 }}
 
-// pub fn parse(src_file: impl AsRef<Path>) -> TranslationUnit {
-pub fn parse(src_code: &str) -> TranslationUnit {
-	// let src_code = fs::read_to_string(src_file).expect("Failed to read source code file");
-	if let Ok(tu) = parser::translation_unit(&src_code) { tu } else { panic!("failed to parse source code") }
-}
-
-// pub fn function_name(tu: &TranslationUnit) -> &str {
-// 	let TranslationUnit(extern_decs) = tu;
-
-// 	for dec in extern_decs.iter() {
-// 		use ExternalDeclaration::*;
-// 		if let FunctionDefinitionDecl(FunctionDefinition {
-// 			declarator: FunctionDeclarator {
-// 				identifier: Identifier(fname),
-// 				..
-// 			},
-// 			..
-// 		}) = dec
-// 		{
-// 			return fname.as_str();
-// 		}
-// 	}
-
-// 	panic!("No function in the translation unit")
-// }
+pub fn parse(src_code: &str) -> TranslationUnit { if let Ok(tu) = parser::translation_unit(&src_code) { tu } else { panic!("failed to parse source code") } }

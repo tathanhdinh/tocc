@@ -362,7 +362,6 @@ impl<'a> SimpleType<'a> {
 						})
 						.collect();
 
-					// let sname = sname.into();
 					env.bind(identifier.into(), Self::AggregateTy(AggregateType { fields }));
 				}
 
@@ -522,10 +521,6 @@ pub fn check_statement<'a>(stmt: &'_ Statement<'a>, bind_env: &'_ mut BindingEnv
 						(PointerTy(_), PrimitiveTy(_)) => {}
 						_ => todo!(),
 					}
-
-					// if *return_ty != expr_ty {
-					// 	error!("returned expression ill-typed")
-					// }
 				}
 			}
 		}
