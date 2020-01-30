@@ -94,7 +94,7 @@ In a statically typed language like C, the compiler does not preserve the high-l
 type information in the generated machine code,
 % Because most of information about high-level types is lost in compilation,
 % the machine code
-then the \emph{type recovery} (or type reconstruction) from machine code requires
+then the \emph{type reconstruction} (or type recovery) from machine code requires
 special techniques, a survey up until 2015 can be referenced in~\cite{caballero_type_2016}.
 
 In the opposite direction, binary code \emph{obfuscation} is to make the decompilation (or in
@@ -104,7 +104,7 @@ on them. But to the best of our knowledge, there is still no explicit effort in 
 high-level types. There would be several reasons for this lack of effort.
 
 \emph{First}, type obfuscation is unsurprisingly a side effect of data or control flow obfuscation.
-Indeed, type reconstruction algorithms need both data and control flow to build type constraints,
+Indeed, type reconstruction algorithms need data and control flow to build type constraints,
 if any of them is hidden
 then the algorithms cannot work correctly. Or if the function boundary is not found
 (because of anti-disassembing tricks, for example), then high-level objects cannot be recognized.
@@ -119,8 +119,8 @@ more complete list.
 \section{Type flattening compiler}
 We present \emph{uCc}, an open source C compiler that explicitly obfuscates high-level types, \emph{uCc}'s
 objective is to make reconstructing C types from machine codes harder.
-The compiler is implemented in Rust, the source code and a brief user guide are given at (cite); different
-from other code obfuscation implementations, \emph{uCc} uses cranelift~\cite{noauthor_cranelift_nodate}
+The compiler is implemented in Rust, the source code and a brief user guide are given at~\cite{ta_ucc_nodate};
+different from other code obfuscation implementations, \emph{uCc} uses cranelift~\cite{noauthor_cranelift_nodate}
 as backend.
 
 Our effort is to attack the core of type reconstruction algorithms,

@@ -14,7 +14,10 @@ use target_lexicon::triple;
 
 use gumdrop::Options;
 use once_cell::sync::OnceCell;
-use zydis::{AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer, Signedness};
+use zydis::{
+	AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer,
+	Signedness,
+};
 
 mod backend;
 mod frontend;
@@ -34,6 +37,9 @@ struct Opt {
 	#[options(help = "lightweight obfuscation", no_long)]
 	light: bool,
 
+	#[options(help = "verbose", no_long)]
+	verbose: bool,
+
 	#[options(help = "function to jit", meta = "function", no_long)]
 	fname: Option<String>,
 
@@ -42,12 +48,15 @@ struct Opt {
 }
 
 static LIGHT_BLUR: OnceCell<bool> = OnceCell::new();
-
 pub fn light() -> bool { *LIGHT_BLUR.get_or_init(|| false) }
+
+static VERBOSE: OnceCell<bool> = OnceCell::new();
+pub fn verbose() -> bool { *VERBOSE.get_or_init(|| false) }
 
 fn main() {
 	let opt = Opt::parse_args_default_or_exit();
 	LIGHT_BLUR.set(opt.light).unwrap();
+	VERBOSE.set(opt.verbose).unwrap();
 
 	let src_code = fs::read_to_string(&opt.src).expect("failed to read source code file");
 	let tu = frontend::syntax::parse(src_code.as_str());
@@ -58,26 +67,38 @@ fn main() {
 		let mut am = backend::AbstractMachine::<'_, SimpleJITBackend>::new(&tu, builder);
 		if let Some(fname) = &opt.fname {
 			if let Some((fptr, flen)) = am.compiled_function(fname.as_str()) {
-				let fptr = unsafe { slice::from_raw_parts(mem::transmute::<_, *const u8>(fptr), flen as _) };
+				let fptr = unsafe {
+					slice::from_raw_parts(mem::transmute::<_, *const u8>(fptr), flen as _)
+				};
 
 				let asm_formatter = {
-					let mut fm = Formatter::new(FormatterStyle::INTEL).expect("failed to create assembly formatter");
-					fm.set_property(FormatterProperty::HexUppercase(false)).expect("failed to disable hex uppercase");
-					fm.set_property(FormatterProperty::DisplacementSignedness(Signedness::SIGNED)).expect("failed to set displacement signedness");
-					fm.set_property(FormatterProperty::ImmediateSignedness(Signedness::SIGNED)).expect("failed to set immediate signedness");
-					fm.set_property(FormatterProperty::ForceRelativeRiprel(true)).expect("failed to force relative RIP");
-					fm.set_property(FormatterProperty::AddressSignedness(Signedness::SIGNED)).expect("failed to set address signedness");
-					fm.set_property(FormatterProperty::ForceRelativeBranches(true)).expect("failed to set relative branches");
+					let mut fm = Formatter::new(FormatterStyle::INTEL)
+						.expect("failed to create assembly formatter");
+					fm.set_property(FormatterProperty::HexUppercase(false))
+						.expect("failed to disable hex uppercase");
+					fm.set_property(FormatterProperty::DisplacementSignedness(Signedness::SIGNED))
+						.expect("failed to set displacement signedness");
+					fm.set_property(FormatterProperty::ImmediateSignedness(Signedness::SIGNED))
+						.expect("failed to set immediate signedness");
+					fm.set_property(FormatterProperty::ForceRelativeRiprel(true))
+						.expect("failed to force relative RIP");
+					fm.set_property(FormatterProperty::AddressSignedness(Signedness::SIGNED))
+						.expect("failed to set address signedness");
+					fm.set_property(FormatterProperty::ForceRelativeBranches(true))
+						.expect("failed to set relative branches");
 					fm
 				};
 
-				let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64).expect("failed to create assembly decoder");
+				let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64)
+					.expect("failed to create assembly decoder");
 
 				let mut decoded_inst_buffer = [0u8; 200];
 				let mut decoded_inst_buffer = OutputBuffer::new(&mut decoded_inst_buffer[..]);
 
 				for (inst, ip) in asm_decoder.instruction_iterator(fptr, 0) {
-					asm_formatter.format_instruction(&inst, &mut decoded_inst_buffer, Some(ip), None).expect("failed to format instruction");
+					asm_formatter
+						.format_instruction(&inst, &mut decoded_inst_buffer, Some(ip), None)
+						.expect("failed to format instruction");
 					println!("0x{:02x}\t{}", ip, decoded_inst_buffer);
 				}
 			} else {
@@ -103,11 +124,18 @@ fn main() {
 				fb
 			};
 
-			let isa_bulder = checked_unwrap_result!(isa::lookup(triple!("x86_64-unknown-linux-elf")));
+			let isa_bulder =
+				checked_unwrap_result!(isa::lookup(triple!("x86_64-unknown-linux-elf")));
 			isa_bulder.finish(settings::Flags::new(flag_builder))
 		};
 
-		let builder = FaerieBuilder::new(isa, output, FaerieTrapCollection::Disabled, cranelift_module::default_libcall_names()).expect("cannot create backend builder");
+		let builder = FaerieBuilder::new(
+			isa,
+			output,
+			FaerieTrapCollection::Disabled,
+			cranelift_module::default_libcall_names(),
+		)
+		.expect("cannot create backend builder");
 		let am = backend::AbstractMachine::<'_, FaerieBackend>::new(&tu, builder);
 
 		let product = am.finish();

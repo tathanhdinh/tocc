@@ -3,7 +3,9 @@ use std::hint::unreachable_unchecked;
 
 use crate::error;
 
-const KEYWORDS: &'_ [&'_ str] = &["if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void"];
+const KEYWORDS: &'_ [&'_ str] = &[
+	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void",
+];
 
 #[derive(Clone, Debug)]
 pub enum UnaryOperator {
@@ -659,4 +661,10 @@ peg::parser! {grammar parser() for str {
 		}
 }}
 
-pub fn parse(src_code: &str) -> TranslationUnit { if let Ok(tu) = parser::translation_unit(&src_code) { tu } else { panic!("failed to parse source code") } }
+pub fn parse(src_code: &str) -> TranslationUnit {
+	if let Ok(tu) = parser::translation_unit(&src_code) {
+		tu
+	} else {
+		panic!("failed to parse source code")
+	}
+}

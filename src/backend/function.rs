@@ -28,7 +28,7 @@ use crate::{
 		FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement,
 		StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression, WhileStatement,
 	},
-	generate_random_maps, light, semantically_unreachable, unimpl,
+	generate_random_maps, light, semantically_unreachable, unimpl, verbose,
 };
 
 use super::support::{
@@ -286,11 +286,11 @@ fn optimize_function(ctxt: &'_ mut Context) {
 }
 
 pub fn translate_function<'clif, 'tcx>(
-	func_def: &'tcx FunctionDefinition<'tcx>, func_id: FuncId, return_ty: Option<Type>,
-	param_ty: &'_ [Type], pointer_ty: Type, ctxt: &'clif mut Context,
-	module: &'clif mut Module<impl Backend>, outer_name_env: &'_ NameBindingEnvironment<'tcx>,
+	func_def: &'tcx FunctionDefinition<'tcx>, return_ty: Option<Type>, param_ty: &'_ [Type],
+	pointer_ty: Type, ctxt: &'clif mut Context, module: &'clif mut Module<impl Backend>,
+	outer_name_env: &'_ NameBindingEnvironment<'tcx>,
 	outer_type_env: &'_ TypeBindingEnvironment<'tcx>,
-) -> (FuncId, usize) {
+) {
 	let FunctionDefinition { body, .. } = func_def;
 
 	let mut func_builder_ctxt = FunctionBuilderContext::new();
@@ -312,20 +312,18 @@ pub fn translate_function<'clif, 'tcx>(
 		FunctionTranslator::new(func_builder, module, return_ty, name_env, outer_type_env);
 	func_translator.translate_statement(body, entry_ebb);
 	func_translator.func_builder.get_mut().finalize();
-	// println!("{:?}", func_translator.func_builder.borrow().func);
-
-	let func_len = module.define_function(func_id, ctxt).expect("failed to define function");
-
-	module.clear_context(ctxt);
-
-	(func_id, func_len as usize)
 }
 
 pub fn finalize_function_translation<'clif>(
-	module: &'clif mut Module<impl Backend>, ctxt: &'clif mut Context, func_id: FuncId,
-) {
+	func_id: FuncId, ctxt: &'clif mut Context, module: &'clif mut Module<impl Backend>,
+) -> u32 {
 	optimize_function(ctxt);
+	if verbose() {
+		println!("{:?}", ctxt.func);
+	}
+	let func_len = module.define_function(func_id, ctxt).expect("failed to define function");
 	module.clear_context(ctxt);
+	func_len
 }
 
 fn declare_variable(
