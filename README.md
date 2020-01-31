@@ -1,9 +1,9 @@
 # uCc: untyped (or micro) C compiler
 
 `uCc` is a small C compiler which presents the idea of *type-flattening obfuscation*.
-Its objectives is to make the type reconstruction from binary code hard. To get the idea, try to decompile<sup>1</sup> some object files in [demo](./demo) to see the output.
+Its objectives is to make the type reconstruction from binary code hard. You may try to decompile<sup>1</sup> some object files in [demo](./demo) to see the output.
 
-`uCc` compiles with Rust 1.40.0 and is tested in Linux only, it should work on Windows in WSL but this is not tested.
+`uCc` compiles with Rust >= 1.40.0 and is tested on Linux, it should work on Windows in WSL but this is not tested.
 
 ## Compilation
 ```
@@ -17,11 +17,11 @@ and installation (optional)
 cargo install --path .
 ```
 
-or it can be used directly by invoking
+or it can be used without install by invoking
 ```
 cargo run --
 ```
-instead of `ucc`.
+in the project's folder.
 
 ## Usage
 
@@ -53,23 +53,21 @@ ucc demo/slen.c -o slen_flat.o -v
 ```
 
 - The mode JIT<sup>2</sup> can be used to see immediately the machine code, the function
-to jit must be given
+to jit must be specified
 ```
 ucc demo/slen.c -j -f slen
 ```
 
 - Sometimes, the obfuscation is to *heavy* then Hex-Rays may complain "too big function" (other
 decompilers like Ghidra or JEB have no such limit), then the mode *lightweight* can be used.
-In this mode, most of obfuscation transformation are removed
+In this mode, most of obfuscation transformations are removed
 ```
 ucc demo/slen.c -o slen_light.o -l
 ```
 
 ## Notes
 
-The compiler is in active development, it lacks many features of a full C compiler, for example
-it can generate object files only, executable is not yet possible. If you want to run the file, link
-it using a C compiler:
+ - The compiler is in development, in the current state it lacks *many features*<sup>3</sup> of a full C compiler, for example it can generate object files only, executable is not yet possible. If you want to run the file, please link it using a C compiler:
 
 ```C
 // create a main.c
@@ -90,8 +88,12 @@ gcc main.c slen_flat.o -o slen
 len = 11
 ```
 
+ - The compiler is probabilistic, so it generates a different output each time invoked.
+
 ___
 
 <sup>1</sup> Some decent decompilers: [Hex-Rays](https://www.hex-rays.com/products/decompiler/index.shtml) (which provides an [evaluation](https://out7.hex-rays.com/demo/request)), [Ghidra](https://ghidra-sre.org/), [JEB](https://www.pnfsoftware.com/), etc.
 
 <sup>2</sup> In some Linux distro with SELinux, JIT is forbidden because of [W^X protection](https://en.wikipedia.org/wiki/W%5EX), this can be temporarily disabled using `sudo setenforce 0`.
+
+<sup>3</sup> There is still no pre-processing so include, define, macro, etc. do not work yet, neither comments in source codes. Please look at examples in [tests](./tests/) and [demo](./demo/) for the kind of programs that `uCc` currently support.
