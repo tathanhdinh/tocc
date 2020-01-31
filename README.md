@@ -1,9 +1,9 @@
 # uCc: untyped (or micro) C compiler
 
 `uCc` is a small C compiler which presents the idea of *type-flattening obfuscation*.
-Its objectives is to make the type reconstruction from binary code hard. You may try to decompile<sup>1</sup> some object files in [demo](./demo) to see the output.
+Its objectives is to make the type reconstruction from binary code hard. You may try to decompile<sup>1</sup> some obfuscated object files in [demo](./demo) to see the effect on function signatures.
 
-`uCc` compiles with Rust >= 1.40.0 and is tested on Linux, it should work on Windows in WSL but this is not tested.
+`uCc` compiles with Rust >= 1.40.0 and is tested on Linux.
 
 ## Compilation
 ```
@@ -17,15 +17,14 @@ and installation (optional)
 cargo install --path .
 ```
 
-or it can be used without install by invoking
+Otherwise, `ucc` can be used in the project's folder with
 ```
 cargo run --
 ```
-in the project's folder.
+
 
 ## Usage
 
-The help is given by:
 ```bash
 ucc --help (or cargo run -- --help)
 
@@ -58,9 +57,7 @@ to jit must be specified
 ucc demo/slen.c -j -f slen
 ```
 
-- Sometimes, the obfuscation is to *heavy* then Hex-Rays may complain "too big function" (other
-decompilers like Ghidra or JEB have no such limit), then the mode *lightweight* can be used.
-In this mode, most of obfuscation transformations are removed
+- Sometimes, the obfuscated code is to *heavy*<sup>4</sup> then Hex-Rays may complain "too big function" (other decompilers like Ghidra or JEB have no such limit), then the mode *lightweight* can be used. In this mode, most of obfuscation transformations are removed
 ```
 ucc demo/slen.c -o slen_light.o -l
 ```
@@ -88,7 +85,7 @@ gcc main.c slen_flat.o -o slen
 len = 11
 ```
 
- - The compiler is probabilistic, so it generates a different output each time invoked.
+ - The compiler is probabilistic, it generates a different but computationally equivalent output each time invoked.
 
 ___
 
@@ -97,3 +94,5 @@ ___
 <sup>2</sup> In some Linux distro with SELinux, JIT is forbidden because of [W^X protection](https://en.wikipedia.org/wiki/W%5EX), this can be temporarily disabled using `sudo setenforce 0`.
 
 <sup>3</sup> There is still no pre-processing so include, define, macro, etc. do not work yet, neither comments in source codes. Please look at examples in [tests](./tests/) and [demo](./demo/) for the kind of programs that `uCc` currently support.
+
+<sup>4</sup> This is an unwanted effect, putting unnecessary noise into the machine code is not the goal of `uCc`.
