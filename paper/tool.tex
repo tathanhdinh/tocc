@@ -39,9 +39,9 @@
 %   bookmarksdepth  = 3
 }
 
-\usepackage{listings}
-\lstset{basicstyle=\small\ttfamily,showspaces=false,frame=tb}
-\lstloadlanguages{C,C++,[x86masm]Assembler}
+% \usepackage{listings}
+% \lstset{basicstyle=\small\ttfamily,showspaces=false,frame=tb}
+% \lstloadlanguages{C,C++,[x86masm]Assembler}
 
 % \usepackage{cleveref}
 % \usepackage{adjustbox}
@@ -90,13 +90,14 @@ An important step in binary code \emph{decompilation}~\cite{cifuentes_reverse_19
 detect high-level objects (e.g. functions, variables) from low-level machine dependent
 objects~\cite{balakrishnan_divine_2007} (e.g. registers, raw memory accesses, machine
 instructions) before annotate them with types of the "assumed" original language.
-In a statically typed language like C, the compiler does not preserve the high-level
+In a statically typed language like C, the compiler doesn't preserve the high-level
 type information in the generated machine code,
 % Because most of information about high-level types is lost in compilation,
 % the machine code
 then the \emph{type reconstruction} (or type recovery) from machine code requires
 special techniques, a survey up until 2015 can be referenced in~\cite{caballero_type_2016}, more
-recent research includes~\cite{noonan_polymorphic_2016, maier_typeminer_2019, katz_estimating_2016}.
+recent research
+includes~\cite{noonan_polymorphic_2016, maier_typeminer_2019, katz_estimating_2016, robbins_minx_2016}.
 
 In the opposite direction, binary code \emph{obfuscation} is to make the decompilation (or in
 general code analysis) harder. Since the data and control flow are principal elements for the
@@ -119,39 +120,47 @@ more complete list.
 \subsection*{Type flattening obfuscation}
 Under our interest, the studies in binary code type reconstruction can be roughly divided into
 two directions: one is based on semantics of programs, the other is not. We focus on the former,
-and also on methods using static analysis. The research in this vein starts with
-Mycroft~\cite{mycroft_type-based_1999}, and improved in~\cite{lee_tie_2011,noonan_polymorphic_2016,elwazeer_scalable_2013}
+and also on methods based on static analysis. The research in this vein starts with
+Mycroft~\cite{mycroft_type-based_1999}, and improved
+in~\cite{lee_tie_2011,noonan_polymorphic_2016,elwazeer_scalable_2013, robbins_minx_2016}.
+One of the notable improvement is to propose some notion of \emph{subtyping} to formally estimate
+the closeness of inferred types over the original types. For example, the subtyping
+in~\cite{lee_tie_2011} is based on a lattice which simulates the
+\emph{conversion rank} of C's integer types, e.g. \texttt{int16\_t} is subtype of \texttt{int64\_t}.
+Basically, if the inferred type is a supertype of the original one
+then the result, though may be still sound, is less accurate. We should note that sometimes,
+the supertype is the best result possible.
+
+In this work, we limit on primitive types and their derived pointer types. Our purpose
+is to neutralize the subtyping relation: a type can only be inferred as its
+supertype. Concretely, \texttt{char}, \texttt{short}, \texttt{int}, etc. and pointers will
+be recognized as either \texttt{uint64\_t} or \texttt{int64\_t}. We call this technique
+\emph{type flattening obfuscation}.
+Also we focus only on obfuscating types of function signatures, local variables are weaker primitives
+since the compiler can remove them, e.g. through optimization.
 
 \section{Compiler for type flattening}
-We present \emph{uCc}, an open source C compiler that explicitly obfuscates high-level types, \emph{uCc}'s
-objective is to make reconstructing C types from machine codes harder.
+We present \emph{uCc}, an open source C compiler that explicitly obfuscates high-level types.
+% \emph{uCc}'s objective is to make reconstructing C types from machine codes harder.
 The compiler is implemented in Rust, the source code and a brief user guide are given at~\cite{ta_ucc_nodate};
-different from other code obfuscation implementations, \emph{uCc} uses cranelift~\cite{noauthor_cranelift_nodate}
+different from other code obfuscation implementations, it uses cranelift~\cite{noauthor_cranelift_nodate}
 as backend.
 
-Our effort is to attack the core of type reconstruction algorithms,
-these are the data flow used to build type constraints, and the \emph{semantic gap} between types in the high-level language and their
+% Our effort is to
+\emph{uCc} attacks the core of type reconstruction algorithms,
+these are the data flow used to build type constraints and the \emph{semantic gap} between types in the high-level language and their
 representations in the low-level machine code.
 Beside custom tricks, \emph{uCc} uses extensively
-obfuscation transformations based on Mixed Boolean Arithmetic expressions~\cite{eyrolles_obfuscation_2017,zhou_information_2007}.
+transformations based on Mixed Boolean Arithmetic expressions~\cite{eyrolles_obfuscation_2017,zhou_information_2007}.
 To make some code diversity, the compiler is \emph{probabilistic}: given a source
 code, \emph{uCc} generates each time a different (but computationally equivalent) output machine code.
-
-\subsection*{Evaluation}
-We test outputs of \emph{uCc} against some decompilers, table~\ref{description} describes briefly
-tested functions and their types in source codes, table~\ref{flattening} shows results of
-decompilers on binaries generated by \emph{uCc}. The effect of obfuscation is to make the types
-of functions harder to be reconstructed. Indeed, the decompilers know very little about the original
-types. Basically, any argument in the function signature is simply assigned by either \texttt{int64}
-or \texttt{uint64}, the highest types in the \emph{conversion rank} of integer types, we call this
-effect \emph{type flattening}.
 
 \begin{table}
 	\begin{center}
 		\caption{Functions and original types}\label{description}
 		\begin{tabular}{|l|l|}
 			\hline
-			Description & Function type \\
+			Description & Signature \\
 			\hline
 			identity & \texttt{int id(int)} \\
 			\hline
@@ -176,6 +185,18 @@ effect \emph{type flattening}.
 		\end{tabular}
 	\end{center}
 \end{table}
+
+\subsection*{Evaluation}
+We test outputs of \emph{uCc} against some decompilers, table~\ref{description} describes briefly
+tested functions and their signatures in source codes, table~\ref{flattening} shows results of
+decompilers on binaries generated by \emph{uCc}.
+% The effect of obfuscation is to make the types of functions harder to be reconstructed.
+% Indeed, the decompilers know very little about the original
+% types:
+Basically, any argument in the function signature is simply assigned by either \texttt{int64}
+or \texttt{uint64}.
+% , the highest types in the \emph{conversion rank} of integer types, we call this
+% effect \emph{type flattening}.
 
 \begin{table}
 	\begin{adjustwidth}{-6.21in}{-5.95in}
@@ -224,13 +245,15 @@ effect \emph{type flattening}.
 
 It may worth to note that the \emph{type flattening} is given by \emph{uCc}, not by the source code
 complexity of tested functions. Indeed if they are compiled by, \emph{clang} or \emph{gcc} for example,
-then their signatures are reconstructed precisely
-by the decompilers. Last but not least, \emph{uCc} attacks directly on type reconstruction algorithms,
-it doesn't use obfuscation techniques
+then their signatures can be reconstructed precisely
+by any tested decompiler. Last but not least, \emph{uCc}
+% attacks directly on type reconstruction algorithms,
+% it
+doesn't use obfuscation techniques
 % , for example making disassembling or function boundary detection hard,
-whose side effects affect the type
-reconstruction. Indeed, functions in tested binaries are perfectly detectable, disassemblable and
-decompilable; only their decompiled types are in question.
+whose side effects may affect the type
+reconstruction: functions in tested binaries are perfectly detectable, disassemblable and
+decompilable; only their inferred signatures are in question.
 
 % \begin{table}
 % \caption{Table captions should be placed above the
