@@ -28,7 +28,7 @@ use crate::{
 		FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement,
 		StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression, WhileStatement,
 	},
-	generate_random_maps, light, semantically_unreachable, unimpl, verbose,
+	generate_linear_maps, light, semantically_unreachable, unimpl, verbose,
 };
 
 use super::support::{
@@ -121,7 +121,7 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 		let pv = fb.ins().ireduce(ty, pv);
 		let pv = match ty {
 			types::I8 => {
-				let (a0, b0, a1, b1) = generate_random_maps!(i8);
+				let (a0, b0, a1, b1) = generate_linear_maps!(i8);
 				let pv = fb.ins().imul_imm(pv, a0 as i64);
 				let pv = fb.ins().iadd_imm(pv, b0 as i64);
 				let pv = fb.ins().imul_imm(pv, a1 as i64);
@@ -130,7 +130,7 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 			}
 
 			types::I16 => {
-				let (a0, b0, a1, b1) = generate_random_maps!(i16);
+				let (a0, b0, a1, b1) = generate_linear_maps!(i16);
 				let pv = fb.ins().imul_imm(pv, a0 as i64);
 				let pv = fb.ins().iadd_imm(pv, b0 as i64);
 				let pv = fb.ins().imul_imm(pv, a1 as i64);
@@ -139,7 +139,7 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 			}
 
 			types::I32 => {
-				let (a0, b0, a1, b1) = generate_random_maps!(i32);
+				let (a0, b0, a1, b1) = generate_linear_maps!(i32);
 				let pv = fb.ins().imul_imm(pv, a0 as i64);
 				let pv = fb.ins().iadd_imm(pv, b0 as i64);
 				let pv = fb.ins().imul_imm(pv, a1 as i64);
@@ -160,15 +160,15 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 	acc_val
 }
 
-fn create_entry_ebb(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty: Type) -> Ebb {
-	let trampoline_ebb = fb.create_ebb();
-	fb.append_ebb_params_for_function_params(trampoline_ebb);
+fn create_entry_block(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty: Type) -> Block {
+	let trampoline_ebb = fb.create_block();
+	fb.append_block_params_for_function_params(trampoline_ebb);
 
 	fb.switch_to_block(trampoline_ebb);
 	let mut param_vals = Vec::new();
 	for (i, ty) in param_ty.iter().enumerate() {
 		let val = {
-			let val = fb.ebb_params(trampoline_ebb)[i];
+			let val = fb.block_params(trampoline_ebb)[i];
 			let val = blur_value(fb, val);
 
 			if ty.bytes() < pointer_ty.bytes() {
@@ -188,9 +188,9 @@ fn create_entry_ebb(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty: 
 		param_vals.push(val);
 	}
 
-	let entry_ebb = fb.create_ebb();
+	let entry_ebb = fb.create_block();
 	for ty in param_ty {
-		fb.append_ebb_param(entry_ebb, *ty);
+		fb.append_block_param(entry_ebb, *ty);
 	}
 	fb.ins().jump(entry_ebb, &param_vals);
 	fb.seal_block(trampoline_ebb);
@@ -201,7 +201,7 @@ fn create_entry_ebb(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty: 
 }
 
 fn declare_parameter_variables<'tcx>(
-	func_def: &'_ FunctionDefinition<'tcx>, fb: &'_ mut FunctionBuilder, entry_ebb: Ebb,
+	func_def: &'_ FunctionDefinition<'tcx>, fb: &'_ mut FunctionBuilder, entry_ebb: Block,
 	pointer_ty: Type, name_env: &'_ mut NameBindingEnvironment<'tcx>,
 	type_env: &'_ TypeBindingEnvironment<'tcx>,
 ) {
@@ -213,7 +213,7 @@ fn declare_parameter_variables<'tcx>(
 	for (i, Declaration { declarator, specifier }) in parameters.iter().enumerate() {
 		let Declarator { ident: Identifier(var_name), derived, .. } =
 			checked_unwrap_option!(declarator.as_ref());
-		let param_val = fb.ebb_params(entry_ebb)[i];
+		let param_val = fb.block_params(entry_ebb)[i];
 
 		match specifier {
 			VoidTy => todo!(),
@@ -298,7 +298,7 @@ pub fn translate_function<'clif, 'tcx>(
 
 	let mut name_env = outer_name_env.inherit();
 
-	let entry_ebb = create_entry_ebb(&mut func_builder, &param_ty, pointer_ty);
+	let entry_ebb = create_entry_block(&mut func_builder, &param_ty, pointer_ty);
 	declare_parameter_variables(
 		func_def,
 		&mut func_builder,
@@ -369,7 +369,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			let pv = checked_unwrap_option!(self.ireduce(ty, pv));
 			let pv = match ty {
 				types::I8 => {
-					let (a0, b0, a1, b1) = generate_random_maps!(i8);
+					let (a0, b0, a1, b1) = generate_linear_maps!(i8);
 					self.blur_iadd_imm(
 						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
 						b1,
@@ -377,7 +377,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				}
 
 				types::I16 => {
-					let (a0, b0, a1, b1) = generate_random_maps!(i16);
+					let (a0, b0, a1, b1) = generate_linear_maps!(i16);
 					self.blur_iadd_imm(
 						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
 						b1,
@@ -385,7 +385,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				}
 
 				types::I32 => {
-					let (a0, b0, a1, b1) = generate_random_maps!(i32);
+					let (a0, b0, a1, b1) = generate_linear_maps!(i32);
 					self.blur_iadd_imm(
 						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
 						b1,
@@ -423,7 +423,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				let pval = checked_unwrap_option!(self.ireduce(ty, pval));
 				match ty {
 					types::I8 => {
-						let (a0, b0, a1, b1) = generate_random_maps!(i8);
+						let (a0, b0, a1, b1) = generate_linear_maps!(i8);
 						self.blur_iadd_imm(
 							self.blur_imul_imm(
 								self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
@@ -434,7 +434,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					}
 
 					types::I16 => {
-						let (a0, b0, a1, b1) = generate_random_maps!(i16);
+						let (a0, b0, a1, b1) = generate_linear_maps!(i16);
 						self.blur_iadd_imm(
 							self.blur_imul_imm(
 								self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
@@ -445,7 +445,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					}
 
 					types::I32 => {
-						let (a0, b0, a1, b1) = generate_random_maps!(i32);
+						let (a0, b0, a1, b1) = generate_linear_maps!(i32);
 						self.blur_iadd_imm(
 							self.blur_imul_imm(
 								self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
@@ -590,12 +590,12 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 	fn translate_do_while_statement(
 		&'_ mut self, DoWhileStatement { statement, condition }: &'_ DoWhileStatement<'tcx>,
-		_current_ebb: Ebb,
-	) -> Option<Ebb> {
+		_current_ebb: Block,
+	) -> Option<Block> {
 		use ConcreteValue::*;
 
-		let loop_ebb = self.new_ebb();
-		let exit_ebb = self.new_ebb();
+		let loop_ebb = self.new_block();
+		let exit_ebb = self.new_block();
 
 		self.insert_jmp(loop_ebb);
 
@@ -619,13 +619,13 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 	fn translate_while_statement(
 		&'_ mut self, WhileStatement { condition, statement }: &'_ WhileStatement<'tcx>,
-		_current_ebb: Ebb,
-	) -> Option<Ebb> {
+		_current_ebb: Block,
+	) -> Option<Block> {
 		use ConcreteValue::*;
 
-		let header_ebb = self.new_ebb();
-		let loop_ebb = self.new_ebb();
-		let exit_ebb = self.new_ebb();
+		let header_ebb = self.new_block();
+		let loop_ebb = self.new_block();
+		let exit_ebb = self.new_block();
 
 		self.insert_jmp(header_ebb);
 
@@ -655,8 +655,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	}
 
 	fn translate_compound_statements(
-		&'_ mut self, stmts: &'_ [Statement<'tcx>], current_ebb: Ebb,
-	) -> Option<Ebb> {
+		&'_ mut self, stmts: &'_ [Statement<'tcx>], current_ebb: Block,
+	) -> Option<Block> {
 		let original_name_env = self.name_env.clone();
 		let original_type_env = self.type_env.clone();
 
@@ -678,17 +678,17 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	fn translate_for_statement(
 		&'_ mut self,
 		ForStatement { initializer, condition, step, statement }: &'_ ForStatement<'tcx>,
-		_current_ebb: Ebb,
-	) -> Option<Ebb> {
+		_current_ebb: Block,
+	) -> Option<Block> {
 		use ConcreteValue::*;
 
 		if let Some(initializer) = initializer.as_ref() {
 			self.translate_expression(initializer);
 		}
 
-		let header_ebb = self.new_ebb();
-		let loop_ebb = self.new_ebb();
-		let exit_ebb = self.new_ebb();
+		let header_ebb = self.new_block();
+		let loop_ebb = self.new_block();
+		let exit_ebb = self.new_block();
 
 		self.insert_jmp(header_ebb);
 
@@ -722,8 +722,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	fn translate_if_statement(
 		&'_ mut self,
 		IfStatement { condition, then_statement, else_statement }: &'_ IfStatement<'tcx>,
-		_current_ebb: Ebb,
-	) -> Option<Ebb> {
+		_current_ebb: Block,
+	) -> Option<Block> {
 		use ConcreteValue::*;
 
 		let SimpleTypedConcreteValue { val, .. } = self.translate_expression(condition);
@@ -733,10 +733,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			_ => semantically_unreachable!(),
 		};
 
-		let then_ebb = self.new_ebb();
-		let merge_ebb = self.new_ebb();
+		let then_ebb = self.new_block();
+		let merge_ebb = self.new_block();
 		if let Some(else_stmt) = else_statement.as_ref() {
-			let else_ebb = self.new_ebb();
+			let else_ebb = self.new_block();
 			self.insert_brz(cond, else_ebb);
 			self.insert_jmp(then_ebb);
 
@@ -766,8 +766,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	}
 
 	fn translate_statement(
-		&'_ mut self, stmt: &'_ Statement<'tcx>, current_ebb: Ebb,
-	) -> Option<Ebb> {
+		&'_ mut self, stmt: &'_ Statement<'tcx>, current_ebb: Block,
+	) -> Option<Block> {
 		use ConcreteValue::*;
 		use Statement::*;
 
@@ -1769,11 +1769,11 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
-	fn new_ebb(&'_ self) -> Ebb { self.func_builder.borrow_mut().create_ebb() }
+	fn new_block(&'_ self) -> Block { self.func_builder.borrow_mut().create_block() }
 
-	fn switch_to_ebb(&'_ self, ebb: Ebb) { self.func_builder.borrow_mut().switch_to_block(ebb) }
+	fn switch_to_ebb(&'_ self, ebb: Block) { self.func_builder.borrow_mut().switch_to_block(ebb) }
 
-	fn seal_ebb(&'_ self, ebb: Ebb) { self.func_builder.borrow_mut().seal_block(ebb) }
+	fn seal_ebb(&'_ self, ebb: Block) { self.func_builder.borrow_mut().seal_block(ebb) }
 
 	fn value_type(&'_ self, val: Value) -> Type {
 		self.func_builder.borrow_mut().func.dfg.value_type(val)
@@ -1993,16 +1993,16 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.func_builder.borrow_mut().ins().bxor_imm(x, y.into())
 	}
 
-	fn insert_brz(&'_ self, cond: Value, ebb: Ebb) -> Inst {
+	fn insert_brz(&'_ self, cond: Value, ebb: Block) -> Inst {
 		self.func_builder.borrow_mut().ins().brz(cond, ebb, &[])
 	}
 
 	#[allow(dead_code)]
-	fn insert_br_icmp(&'_ self, cond: impl Into<IntCC>, x: Value, y: Value, ebb: Ebb) -> Inst {
+	fn insert_br_icmp(&'_ self, cond: impl Into<IntCC>, x: Value, y: Value, ebb: Block) -> Inst {
 		self.func_builder.borrow_mut().ins().br_icmp(cond, x, y, ebb, &[])
 	}
 
-	fn insert_jmp(&'_ self, ebb: Ebb) -> Inst {
+	fn insert_jmp(&'_ self, ebb: Block) -> Inst {
 		self.func_builder.borrow_mut().ins().jump(ebb, &[])
 	}
 

@@ -207,8 +207,11 @@ pub fn generate_random_partition(sum: u32) -> Vec<Type> {
 	partition
 }
 
+// P(x) = a0 * x + b0
+// Q(x) = a1 *x + b1
+// Q(P(x)) = x (i.e. Q = P^(-1))
 #[macro_export]
-macro_rules! generate_random_maps {
+macro_rules! generate_linear_maps {
 	($ty:ty) => {{
 		use rand::{thread_rng, Rng};
 		let mut rng = thread_rng();
