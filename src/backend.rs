@@ -6,6 +6,7 @@ use cranelift_module::{Backend, FuncId, Module};
 
 mod function;
 mod support;
+mod mba;
 mod translation;
 
 use crate::frontend::syntax::TranslationUnit;

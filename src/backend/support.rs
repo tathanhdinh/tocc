@@ -210,29 +210,29 @@ pub fn generate_random_partition(sum: u32) -> Vec<Type> {
 // P(x) = a0 * x + b0
 // Q(x) = a1 *x + b1
 // Q(P(x)) = x (i.e. Q = P^(-1))
-#[macro_export]
-macro_rules! generate_linear_maps {
-	($ty:ty) => {{
-		use rand::{thread_rng, Rng};
-		let mut rng = thread_rng();
-		let a0 = {
-			let a: $ty = rng.gen();
-			if a % 2 == 0 { a + 1 } else { a }
-			};
-		let a1 = {
-			let mut a1 = a0;
-			loop {
-				let a1a0 = a1.wrapping_mul(a0);
-				if a1a0 == 1 {
-					break;
-				}
-				a1 = a1a0;
-				}
-			a1
-			};
-		let b0: $ty = rng.gen();
-		let b1 = a1.wrapping_mul(b0).wrapping_neg();
+// #[macro_export]
+// macro_rules! generate_linear_maps {
+// 	($ty:ty) => {{
+// 		use rand::{thread_rng, Rng};
+// 		let mut rng = thread_rng();
+// 		let a0 = {
+// 			let a: $ty = rng.gen();
+// 			if a % 2 == 0 { a + 1 } else { a }
+// 			};
+// 		let a1 = {
+// 			let mut a1 = a0;
+// 			loop {
+// 				let a1a0 = a1.wrapping_mul(a0);
+// 				if a1a0 == 1 {
+// 					break;
+// 				}
+// 				a1 = a1a0;
+// 				}
+// 			a1
+// 			};
+// 		let b0: $ty = rng.gen();
+// 		let b1 = a1.wrapping_mul(b0).wrapping_neg();
 
-		(a0, b0, a1, b1)
-		}};
-}
+// 		(a0, b0, a1, b1)
+// 		}};
+// }
