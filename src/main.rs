@@ -15,8 +15,8 @@ use target_lexicon::triple;
 use gumdrop::Options;
 use once_cell::sync::OnceCell;
 use zydis::{
-	AddressWidth, Decoder, Formatter, FormatterProperty, FormatterStyle, MachineMode, OutputBuffer,
-	Signedness,
+	AddressWidth, Decoder, DecoderMode, Formatter, FormatterProperty, FormatterStyle, MachineMode,
+	OutputBuffer, Signedness,
 };
 
 mod backend;
@@ -37,6 +37,9 @@ struct Opt {
 	#[options(help = "lightweight obfuscation", no_long)]
 	light: bool,
 
+	#[options(help = "heavyweight obfuscation", short = "l", no_long)]
+	heavy: bool,
+
 	#[options(help = "verbose", no_long)]
 	verbose: bool,
 
@@ -47,6 +50,9 @@ struct Opt {
 	jit: bool,
 }
 
+static HEAVY_BLUR: OnceCell<bool> = OnceCell::new();
+pub fn heavy() -> bool { *HEAVY_BLUR.get_or_init(|| false) }
+
 static LIGHT_BLUR: OnceCell<bool> = OnceCell::new();
 pub fn light() -> bool { *LIGHT_BLUR.get_or_init(|| false) }
 
@@ -55,6 +61,7 @@ pub fn verbose() -> bool { *VERBOSE.get_or_init(|| false) }
 
 fn main() {
 	let opt = Opt::parse_args_default_or_exit();
+	HEAVY_BLUR.set(opt.heavy).unwrap();
 	LIGHT_BLUR.set(opt.light).unwrap();
 	VERBOSE.set(opt.verbose).unwrap();
 
@@ -89,8 +96,13 @@ fn main() {
 					fm
 				};
 
-				let asm_decoder = Decoder::new(MachineMode::LONG_64, AddressWidth::_64)
-					.expect("failed to create assembly decoder");
+				let asm_decoder = {
+					let mut ad = Decoder::new(MachineMode::LONG_64, AddressWidth::_64)
+						.expect("failed to create assembly decoder");
+					ad.enable_mode(DecoderMode::MINIMAL, true)
+						.expect("failed to set decoder minimal mode");
+					ad
+				};
 
 				let mut decoded_inst_buffer = [0u8; 200];
 				let mut decoded_inst_buffer = OutputBuffer::new(&mut decoded_inst_buffer[..]);

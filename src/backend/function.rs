@@ -28,7 +28,7 @@ use crate::{
 		FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement,
 		StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression, WhileStatement,
 	},
-	generate_linear_maps, inverse, light, semantically_unreachable, unimpl, verbose,
+	generate_linear_maps, heavy, inverse, light, semantically_unreachable, unimpl, verbose,
 };
 
 use super::support::{

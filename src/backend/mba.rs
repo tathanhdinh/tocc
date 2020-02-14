@@ -38,8 +38,11 @@ macro_rules! generate_polynomial_maps {
         generate_random_invertible_polynomial!($ty);
         generate_combinations!($ty);
         inverse!($ty);
-        generate_master_coefficients!($ty);
-        let coeffs = generate_random_invertible_polynomial($m as u8);
+		generate_master_coefficients!($ty);
+		generate_inverted_polynomial($ty);
+		let coeffs = generate_random_invertible_polynomial($m as u8);
+		let inv_coeffs = generate_inverted_polynomial(&coeffs);
+		(coeffs, inv_coeffs)
     }};
 }
 
