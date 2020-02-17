@@ -197,7 +197,7 @@ pub fn generate_random_partition(sum: u32) -> Vec<Type> {
 			1 => partition.push(types::I8),
 			2 => partition.push(types::I16),
 			4 => {
-				if heavy() {
+				if heavy() != 0 {
 					partition.push(types::I32)
 				} else {
 					continue;

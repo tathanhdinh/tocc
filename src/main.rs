@@ -37,8 +37,8 @@ struct Opt {
 	#[options(help = "lightweight obfuscation", no_long)]
 	light: bool,
 
-	#[options(help = "heavyweight obfuscation", short = "l", no_long)]
-	heavy: bool,
+	#[options(help = "heavyweight obfuscation", meta = "level", short = "w", no_long, default = "0")]
+	heavy: u8,
 
 	#[options(help = "verbose", no_long)]
 	verbose: bool,
@@ -50,8 +50,8 @@ struct Opt {
 	jit: bool,
 }
 
-static HEAVY_BLUR: OnceCell<bool> = OnceCell::new();
-pub fn heavy() -> bool { *HEAVY_BLUR.get_or_init(|| false) }
+static HEAVY_BLUR: OnceCell<u8> = OnceCell::new();
+pub fn heavy() -> u8 { *HEAVY_BLUR.get_or_init(|| 0) }
 
 static LIGHT_BLUR: OnceCell<bool> = OnceCell::new();
 pub fn light() -> bool { *LIGHT_BLUR.get_or_init(|| false) }

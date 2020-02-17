@@ -34,16 +34,19 @@ macro_rules! generate_linear_maps {
 
 #[macro_export]
 macro_rules! generate_polynomial_maps {
-    ($ty:ty, $m:expr) => {{
-        generate_random_invertible_polynomial!($ty);
-        generate_combinations!($ty);
-        inverse!($ty);
+	($ty:ty, $m:expr) => {{
+		use rand::{thread_rng, Rng};
+		use std::mem::size_of;
+		let mut rng = thread_rng();
+		generate_random_invertible_polynomial!($ty);
+		generate_combinations!($ty);
+		inverse!($ty);
 		generate_master_coefficients!($ty);
-		generate_inverted_polynomial($ty);
+		generate_inverted_polynomial!($ty);
 		let coeffs = generate_random_invertible_polynomial($m as u8);
 		let inv_coeffs = generate_inverted_polynomial(&coeffs);
 		(coeffs, inv_coeffs)
-    }};
+		}};
 }
 
 #[macro_export]
@@ -109,6 +112,36 @@ macro_rules! generate_combinations {
 			}
 
 			combs
+		}
+	};
+}
+
+#[macro_export]
+macro_rules! generate_master_coefficients {
+	($ty:ty) => {
+		fn generate_master_coefficients(coeff: &[$ty]) -> Vec<$ty> {
+			let mut master_coeffs = vec![0; coeff.len()];
+			let m = coeff.len() - 1;
+
+			// Am = -a1^(-m) * am
+			master_coeffs[m] =
+				inverse(coeff[1].wrapping_pow(m as u32)).wrapping_mul(coeff[m]).wrapping_neg();
+
+			let combs = generate_combinations(m as u8);
+			for k in (2..m).rev() {
+				// Ak = -a1^(-k) * ak - ...
+				master_coeffs[k] =
+					inverse(coeff[1].wrapping_pow(k as u32)).wrapping_mul(coeff[k]).wrapping_neg();
+				for j in (k + 1)..=m {
+					master_coeffs[k] = master_coeffs[k].wrapping_sub(
+						combs[k][j]
+							.wrapping_mul(coeff[0].wrapping_pow((j - k) as u32))
+							.wrapping_mul(master_coeffs[j]),
+					);
+				}
+			}
+
+			master_coeffs
 		}
 	};
 }

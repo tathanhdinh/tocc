@@ -28,7 +28,9 @@ use crate::{
 		FunctionDefinition, Identifier, IfStatement, MemberExpression, MemberOperator, Statement,
 		StructType, TypeSpecifier, UnaryOperator, UnaryOperatorExpression, WhileStatement,
 	},
-	generate_linear_maps, heavy, inverse, light, semantically_unreachable, unimpl, verbose,
+	generate_combinations, generate_inverted_polynomial, generate_linear_maps,
+	generate_master_coefficients, generate_polynomial_maps, generate_random_invertible_polynomial,
+	heavy, inverse, light, semantically_unreachable, unimpl, verbose,
 };
 
 use super::support::{
@@ -121,12 +123,25 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 		let pv = fb.ins().ireduce(ty, pv);
 		let pv = match ty {
 			types::I8 => {
-				let (a0, b0, a1, b1) = generate_linear_maps!(i8);
-				let pv = fb.ins().imul_imm(pv, a0 as i64);
-				let pv = fb.ins().iadd_imm(pv, b0 as i64);
-				let pv = fb.ins().imul_imm(pv, a1 as i64);
-				let pv = fb.ins().iadd_imm(pv, b1 as i64);
-				pv
+				let olevel = heavy();
+				if olevel == 0 {
+					let (a0, b0, a1, b1) = generate_linear_maps!(i8);
+					let pv = fb.ins().imul_imm(pv, a0 as i64);
+					let pv = fb.ins().iadd_imm(pv, b0 as i64);
+					let pv = fb.ins().imul_imm(pv, a1 as i64);
+					let pv = fb.ins().iadd_imm(pv, b1 as i64);
+					pv
+				} else {
+					let (coeffs, inv_coeffs) = generate_polynomial_maps!(i8, olevel);
+					for i in 0..=olevel {
+						let mut x_pow_i = pv;
+						for j in 0..i {
+							x_pow_i = fb.ins().imul(x_pow_i, pv)
+						}
+						x_pow_i = fb.ins().imul_imm(x_pow_i, coeffs[i as usize] as i64);
+					}
+					todo!()
+				}
 			}
 
 			types::I16 => {
