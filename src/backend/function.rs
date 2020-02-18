@@ -117,70 +117,116 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 	let random_type_partition = generate_random_partition(val_size);
 	let mut offset = 0i64;
 
+	#[rustfmt::skip]
 	macro_rules! ins {
 		() => {
 			fb.ins()
 		};
 	}
 
+	#[rustfmt::skip]
+	macro_rules! id {
+		($ty:ty, $pv:expr, $tyv:expr, $olevel:expr) => {
+			if $olevel == 0 {
+				let (a0, b0, a1, b1) = generate_linear_maps!($ty);
+				let pv = ins!().imul_imm($pv, a0 as i64);
+				let pv = ins!().iadd_imm(pv, b0 as i64);
+				let pv = ins!().imul_imm(pv, a1 as i64);
+				let pv = ins!().iadd_imm(pv, b1 as i64);
+				pv
+			} else {
+				let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
+				let x = $pv;
+				let mut px = ins!().iconst($tyv, coeffs[0] as i64);
+				for i in 1..=$olevel {
+					let mut x_pow_i = x;
+					for _ in 0..i {
+						x_pow_i = ins!().imul(x_pow_i, x);
+					}
+					x_pow_i = ins!().imul_imm(x_pow_i, coeffs[i as usize] as i64);
+					px = ins!().iadd(px, x_pow_i);
+				}
+
+				let x = px;
+				let mut qx = ins!().iconst($tyv, inv_coeffs[0] as i64);
+				for i in 1..=$olevel {
+					let mut x_pow_i = x;
+					for _ in 0..i {
+						x_pow_i = ins!().imul(x_pow_i, x);
+					}
+					x_pow_i = ins!().imul_imm(x_pow_i, inv_coeffs[i as usize] as i64);
+					qx = ins!().iadd(px, x_pow_i);
+				}
+
+				qx
+			}
+		};
+	}
+
 	let mut acc_val = ins!().iconst(val_ty, 0);
+	let olevel = heavy();
 	for ty in random_type_partition {
 		let pv = ins!().ushr_imm(val, offset);
 		let pv = ins!().ireduce(ty, pv);
 		let pv = match ty {
-			types::I8 => {
-				let olevel = heavy();
-				if olevel == 0 {
-					let (a0, b0, a1, b1) = generate_linear_maps!(i8);
-					let pv = ins!().imul_imm(pv, a0 as i64);
-					let pv = ins!().iadd_imm(pv, b0 as i64);
-					let pv = ins!().imul_imm(pv, a1 as i64);
-					let pv = ins!().iadd_imm(pv, b1 as i64);
-					pv
-				} else {
-					let (coeffs, inv_coeffs) = generate_polynomial_maps!(i8, olevel);
-					let x = pv;
-					let mut px = fb.ins().iconst(ty, coeffs[0] as i64);
-					for i in 1..=olevel {
-						let mut x_pow_i = x;
-						for _ in 0..i {
-							x_pow_i = fb.ins().imul(x_pow_i, x);
-						}
-						x_pow_i = fb.ins().imul_imm(x_pow_i, coeffs[i as usize] as i64);
-						px = fb.ins().iadd(px, x_pow_i);
-					}
+			types::I8 => id!(i8, pv, ty, olevel),
+			// {
+			// 	if olevel == 0 {
+			// 		let (a0, b0, a1, b1) = generate_linear_maps!(i8);
+			// 		let pv = ins!().imul_imm(pv, a0 as i64);
+			// 		let pv = ins!().iadd_imm(pv, b0 as i64);
+			// 		let pv = ins!().imul_imm(pv, a1 as i64);
+			// 		let pv = ins!().iadd_imm(pv, b1 as i64);
+			// 		pv
+			// 	} else {
+			// 		let (coeffs, inv_coeffs) = generate_polynomial_maps!(i8, olevel);
+			// 		let x = pv;
+			// 		let mut px = ins!().iconst(ty, coeffs[0] as i64);
+			// 		for i in 1..=olevel {
+			// 			let mut x_pow_i = x;
+			// 			for _ in 0..i {
+			// 				x_pow_i = ins!().imul(x_pow_i, x);
+			// 			}
+			// 			x_pow_i = ins!().imul_imm(x_pow_i, coeffs[i as usize] as i64);
+			// 			px = ins!().iadd(px, x_pow_i);
+			// 		}
 
-					let x = px;
-					let mut qx = fb.ins().iconst(ty, inv_coeffs[0] as i64);
-					for i in 1..=olevel {
-						let mut x_pow_i = x;
-						for _ in 0..i {
-							x_pow_i = fb.ins().imul(x_pow_i, x);
-						}
-						// x_pow_i = fb.ins().imul_imm()
-					}
+			// 		let x = px;
+			// 		let mut qx = ins!().iconst(ty, inv_coeffs[0] as i64);
+			// 		for i in 1..=olevel {
+			// 			let mut x_pow_i = x;
+			// 			for _ in 0..i {
+			// 				x_pow_i = ins!().imul(x_pow_i, x);
+			// 			}
+			// 			x_pow_i = ins!().imul_imm(x_pow_i, inv_coeffs[i as usize] as i64);
+			// 			qx = ins!().iadd(px, x_pow_i);
+			// 		}
 
-					todo!()
-				}
-			}
-
-			types::I16 => {
-				let (a0, b0, a1, b1) = generate_linear_maps!(i16);
-				let pv = fb.ins().imul_imm(pv, a0 as i64);
-				let pv = fb.ins().iadd_imm(pv, b0 as i64);
-				let pv = fb.ins().imul_imm(pv, a1 as i64);
-				let pv = fb.ins().iadd_imm(pv, b1 as i64);
-				pv
-			}
-
-			types::I32 => {
-				let (a0, b0, a1, b1) = generate_linear_maps!(i32);
-				let pv = fb.ins().imul_imm(pv, a0 as i64);
-				let pv = fb.ins().iadd_imm(pv, b0 as i64);
-				let pv = fb.ins().imul_imm(pv, a1 as i64);
-				let pv = fb.ins().iadd_imm(pv, b1 as i64);
-				pv
-			}
+			// 		qx
+			// 	}
+			// }
+			types::I16 => id!(i16, pv, ty, olevel),
+			// {
+			// 	if olevel == 0 {
+			// 		let (a0, b0, a1, b1) = generate_linear_maps!(i16);
+			// 		let pv = ins!().imul_imm(pv, a0 as i64);
+			// 		let pv = ins!().iadd_imm(pv, b0 as i64);
+			// 		let pv = ins!().imul_imm(pv, a1 as i64);
+			// 		let pv = ins!().iadd_imm(pv, b1 as i64);
+			// 		pv
+			// 	} else {
+			// 		todo!()
+			// 	}
+			// }
+			types::I32 => id!(i32, pv, ty, olevel),
+			// {
+			// 	let (a0, b0, a1, b1) = generate_linear_maps!(i32);
+			// 	let pv = fb.ins().imul_imm(pv, a0 as i64);
+			// 	let pv = fb.ins().iadd_imm(pv, b0 as i64);
+			// 	let pv = fb.ins().imul_imm(pv, a1 as i64);
+			// 	let pv = fb.ins().iadd_imm(pv, b1 as i64);
+			// 	pv
+			// }
 
 			_ => pv,
 		};

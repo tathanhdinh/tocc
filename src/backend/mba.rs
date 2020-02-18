@@ -10,17 +10,6 @@ macro_rules! generate_linear_maps {
 			let a: $ty = rng.gen();
 			if a % 2 == 0 { a + 1 } else { a }
 			};
-		// let a1 = {
-		// 	let mut a1 = a0;
-		// 	loop {
-		// 		let a1a0 = a1.wrapping_mul(a0);
-		// 		if a1a0 == 1 {
-		// 			break;
-		// 		}
-		// 		a1 = a1a0;
-		// 		}
-		// 	a1
-		// 	};
 		let a1 = {
 			inverse!($ty);
 			inverse(a0)
@@ -37,7 +26,6 @@ macro_rules! generate_polynomial_maps {
 	($ty:ty, $m:expr) => {{
 		use rand::{thread_rng, Rng};
 		use std::mem::size_of;
-		let mut rng = thread_rng();
 		generate_random_invertible_polynomial!($ty);
 		generate_combinations!($ty);
 		inverse!($ty);
@@ -75,8 +63,8 @@ macro_rules! generate_random_invertible_polynomial {
 
 			let mut rng = thread_rng();
 
-			coeffs[0] = (1 as $ty)
-				<< (rng.gen_range(size_of::<$ty>() as u8 / 2, size_of::<$ty>() as u8) * 8);
+			coeffs[0] =
+				(1 as $ty) << rng.gen_range((size_of::<$ty>() * 8) / 2, size_of::<$ty>() * 8);
 
 			coeffs[1] = {
 				let a: $ty = rng.gen();
@@ -84,8 +72,8 @@ macro_rules! generate_random_invertible_polynomial {
 			};
 
 			for i in 2..=m {
-				coeffs[i] = (1 as $ty)
-					<< (rng.gen_range(size_of::<$ty>() as u8 / 2, size_of::<$ty>() as u8) * 8);
+				coeffs[i] =
+					(1 as $ty) << rng.gen_range((size_of::<$ty>() * 8) / 2, size_of::<$ty>() * 8);
 			}
 
 			coeffs
@@ -102,12 +90,12 @@ macro_rules! generate_combinations {
 
 			for n in 0..=m {
 				// C(0, n)
-				combs[0][n] = 1;
+				combs[0][n] = 1 as $ty;
 			}
 			for m in 1..=m {
 				for n in m..=m {
 					// C(m, n) = C(m - 1, n) + C(m - 1, n - 1)
-					combs[m][n] = combs[m - 1][n] + combs[m - 1][n - 1];
+					combs[m][n] = combs[m - 1][n].wrapping_add(combs[m - 1][n - 1]);
 				}
 			}
 
@@ -195,4 +183,139 @@ macro_rules! generate_inverted_polynomial {
 			inv_coeffs
 		}
 	};
+}
+
+#[cfg(test)]
+mod mba_tests {
+	use rand::{thread_rng, Rng};
+
+	macro_rules! polynomial {
+		($ty:ty) => {
+			fn polynomial(m: u8, x: $ty) -> $ty {
+				let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, m);
+
+				let mut px = coeffs[0];
+				for i in 1..=m {
+					px = px.wrapping_add(coeffs[i as usize].wrapping_mul(x.wrapping_pow(i as u32)));
+				}
+
+				let mut qpx = inv_coeffs[0];
+				for i in 1..=m {
+					qpx = qpx.wrapping_add(
+						inv_coeffs[i as usize].wrapping_mul(px.wrapping_pow(i as u32)),
+					);
+				}
+
+				qpx
+			}
+		};
+	}
+
+	#[test]
+	fn polynomial_i8_degree2() {
+		let mut rng = thread_rng();
+		let x: i8 = rng.gen();
+		polynomial!(i8);
+		let qpx = polynomial(2, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i8_degree3() {
+		let mut rng = thread_rng();
+		let x: i8 = rng.gen();
+		polynomial!(i8);
+		let qpx = polynomial(3, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i8_degree4() {
+		let mut rng = thread_rng();
+		let x: i8 = rng.gen();
+		polynomial!(i8);
+		let qpx = polynomial(4, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i8_degree5() {
+		let mut rng = thread_rng();
+		let x: i8 = rng.gen();
+		polynomial!(i8);
+		let qpx = polynomial(5, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i16_degree2() {
+		let mut rng = thread_rng();
+		let x: i16 = rng.gen();
+		polynomial!(i16);
+		let qpx = polynomial(2, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i16_degree3() {
+		let mut rng = thread_rng();
+		let x: i16 = rng.gen();
+		polynomial!(i16);
+		let qpx = polynomial(3, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i16_degree4() {
+		let mut rng = thread_rng();
+		let x: i16 = rng.gen();
+		polynomial!(i16);
+		let qpx = polynomial(4, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i16_degree5() {
+		let mut rng = thread_rng();
+		let x: i16 = rng.gen();
+		polynomial!(i16);
+		let qpx = polynomial(5, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i32_degree2() {
+		let mut rng = thread_rng();
+		let x: i32 = rng.gen();
+		polynomial!(i32);
+		let qpx = polynomial(2, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i32_degree3() {
+		let mut rng = thread_rng();
+		let x: i32 = rng.gen();
+		polynomial!(i32);
+		let qpx = polynomial(3, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i32_degree4() {
+		let mut rng = thread_rng();
+		let x: i32 = rng.gen();
+		polynomial!(i32);
+		let qpx = polynomial(4, x);
+		assert_eq!(x, qpx);
+	}
+
+	#[test]
+	fn polynomial_i32_degree5() {
+		let mut rng = thread_rng();
+		let x: i32 = rng.gen();
+		polynomial!(i32);
+		let qpx = polynomial(5, x);
+		assert_eq!(x, qpx);
+	}
 }

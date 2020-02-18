@@ -157,7 +157,7 @@ fn main() {
 }
 
 #[cfg(test)]
-mod tests {
+mod compilation_tests {
 	use super::*;
 	use std::{mem, path::Path};
 
