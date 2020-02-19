@@ -1,5 +1,5 @@
 // P(x) = a0 * x + b0
-// Q(x) = a1 *x + b1
+// Q(x) = a1 * x + b1
 // Q(P(x)) = x (i.e. Q = P^(-1))
 #[macro_export]
 macro_rules! generate_linear_maps {
@@ -63,8 +63,7 @@ macro_rules! generate_random_invertible_polynomial {
 
 			let mut rng = thread_rng();
 
-			coeffs[0] =
-				(1 as $ty) << rng.gen_range((size_of::<$ty>() * 8) / 2, size_of::<$ty>() * 8);
+			coeffs[0] = (1 as $ty) << rng.gen_range(size_of::<$ty>() * 4, size_of::<$ty>() * 8);
 
 			coeffs[1] = {
 				let a: $ty = rng.gen();
@@ -72,8 +71,7 @@ macro_rules! generate_random_invertible_polynomial {
 			};
 
 			for i in 2..=m {
-				coeffs[i] =
-					(1 as $ty) << rng.gen_range((size_of::<$ty>() * 8) / 2, size_of::<$ty>() * 8);
+				coeffs[i] = (1 as $ty) << rng.gen_range(size_of::<$ty>() * 4, size_of::<$ty>() * 8);
 			}
 
 			coeffs
@@ -187,7 +185,11 @@ macro_rules! generate_inverted_polynomial {
 
 #[cfg(test)]
 mod mba_tests {
+	use cranelift::prelude::*;
+	use cranelift_module::{Linkage, Module};
+	use cranelift_simplejit::{SimpleJITBackend, SimpleJITBuilder};
 	use rand::{thread_rng, Rng};
+	use std::{hint::unreachable_unchecked, mem};
 
 	macro_rules! polynomial {
 		($ty:ty) => {
@@ -209,6 +211,142 @@ mod mba_tests {
 				qpx
 			}
 		};
+	}
+
+	macro_rules! jit {
+		($ty:ty, $degree:expr) => {
+			fn jit(input: $ty) -> $ty {
+				let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+				let mut module = Module::<SimpleJITBackend>::new(builder);
+				let mut ctxt = module.make_context();
+
+				match mem::size_of::<$ty>() {
+					1 => {
+						ctxt.func.signature.returns.push(AbiParam::new(types::I8));
+						ctxt.func.signature.params.push(AbiParam::new(types::I8));
+					}
+
+					2 => {
+						ctxt.func.signature.returns.push(AbiParam::new(types::I16));
+						ctxt.func.signature.params.push(AbiParam::new(types::I16));
+					}
+
+					4 => {
+						ctxt.func.signature.returns.push(AbiParam::new(types::I32));
+						ctxt.func.signature.params.push(AbiParam::new(types::I32));
+					}
+
+					_ => unsafe { unreachable_unchecked() },
+				}
+
+				let mut builder_ctxt = FunctionBuilderContext::new();
+				let mut func_builder = FunctionBuilder::new(&mut ctxt.func, &mut builder_ctxt);
+
+				let entry_block = func_builder.create_block();
+				func_builder.append_block_params_for_function_params(entry_block);
+				func_builder.switch_to_block(entry_block);
+				func_builder.seal_block(entry_block);
+
+				let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $degree);
+
+				let x = func_builder.block_params(entry_block)[0];
+				let mut px = match mem::size_of::<$ty>() {
+					1 => func_builder.ins().iconst(types::I8, coeffs[0] as i64),
+					2 => func_builder.ins().iconst(types::I16, coeffs[0] as i64),
+					4 => func_builder.ins().iconst(types::I32, coeffs[0] as i64),
+					_ => unsafe { unreachable_unchecked() },
+				};
+
+				for i in 1..=$degree {
+					let mut xi = x;
+					for _ in 1..i {
+						xi = func_builder.ins().imul(x, xi);
+					}
+					let ai_xi = func_builder.ins().imul_imm(xi, coeffs[i] as i64);
+					px = func_builder.ins().iadd(px, ai_xi);
+				}
+
+				let x = px;
+				let mut qx = match mem::size_of::<$ty>() {
+					1 => func_builder.ins().iconst(types::I8, inv_coeffs[0] as i64),
+					2 => func_builder.ins().iconst(types::I16, inv_coeffs[0] as i64),
+					4 => func_builder.ins().iconst(types::I32, inv_coeffs[0] as i64),
+					_ => unsafe { unreachable_unchecked() },
+				};
+				for i in 1..=$degree {
+					let mut xi = x;
+					for _ in 1..i {
+						xi = func_builder.ins().imul(x, xi);
+					}
+					let bi_xi = func_builder.ins().imul_imm(xi, inv_coeffs[i] as i64);
+					qx = func_builder.ins().iadd(qx, bi_xi);
+				}
+
+				func_builder.ins().return_(&[qx]);
+				func_builder.finalize();
+
+				let func_id = module
+					.declare_function("jit", Linkage::Export, &ctxt.func.signature)
+					.expect("failed to declare function");
+				module.define_function(func_id, &mut ctxt).expect("failed to define function");
+
+				module.clear_context(&mut ctxt);
+				module.finalize_definitions();
+
+				let func_ptr = module.get_finalized_function(func_id);
+				let func_ptr =
+					unsafe { mem::transmute::<_, unsafe extern "C" fn($ty) -> $ty>(func_ptr) };
+				unsafe { func_ptr(input) }
+			}
+		};
+	}
+
+	#[test]
+	fn id_i8_degree2() {
+		let mut rng = thread_rng();
+		let x: i8 = rng.gen();
+		jit!(i8, 2);
+		assert_eq!(x, jit(x))
+	}
+
+	#[test]
+	fn id_i8_degree3() {
+		let mut rng = thread_rng();
+		let x: i8 = rng.gen();
+		jit!(i8, 3);
+		assert_eq!(x, jit(x))
+	}
+
+	#[test]
+	fn id_i8_degree4() {
+		let mut rng = thread_rng();
+		let x: i8 = rng.gen();
+		jit!(i8, 4);
+		assert_eq!(x, jit(x))
+	}
+
+	#[test]
+	fn id_i16_degree2() {
+		let mut rng = thread_rng();
+		let x: i16 = rng.gen();
+		jit!(i16, 2);
+		assert_eq!(x, jit(x))
+	}
+
+	#[test]
+	fn id_i16_degree3() {
+		let mut rng = thread_rng();
+		let x: i16 = rng.gen();
+		jit!(i16, 3);
+		assert_eq!(x, jit(x))
+	}
+
+	#[test]
+	fn id_i16_degree4() {
+		let mut rng = thread_rng();
+		let x: i16 = rng.gen();
+		jit!(i16, 4);
+		assert_eq!(x, jit(x))
 	}
 
 	#[test]

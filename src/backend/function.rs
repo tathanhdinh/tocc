@@ -137,25 +137,25 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 			} else {
 				let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
 				let x = $pv;
-				let mut px = ins!().iconst($tyv, coeffs[0] as i64);
+				let mut px = ins!().iconst($tyv, coeffs[0] as i64); // a0
 				for i in 1..=$olevel {
-					let mut x_pow_i = x;
-					for _ in 0..i {
-						x_pow_i = ins!().imul(x_pow_i, x);
+					let mut xi = x;
+					for _ in 1..i {
+						xi = ins!().imul(xi, x);
 					}
-					x_pow_i = ins!().imul_imm(x_pow_i, coeffs[i as usize] as i64);
-					px = ins!().iadd(px, x_pow_i);
+					let ai_xi = ins!().imul_imm(xi, coeffs[i as usize] as i64);
+					px = ins!().iadd(px, ai_xi);
 				}
 
 				let x = px;
 				let mut qx = ins!().iconst($tyv, inv_coeffs[0] as i64);
 				for i in 1..=$olevel {
-					let mut x_pow_i = x;
-					for _ in 0..i {
-						x_pow_i = ins!().imul(x_pow_i, x);
+					let mut xi = x;
+					for _ in 1..i {
+						xi = ins!().imul(xi, x);
 					}
-					x_pow_i = ins!().imul_imm(x_pow_i, inv_coeffs[i as usize] as i64);
-					qx = ins!().iadd(px, x_pow_i);
+					let bi_xi = ins!().imul_imm(xi, inv_coeffs[i as usize] as i64);
+					qx = ins!().iadd(qx, bi_xi);
 				}
 
 				qx
@@ -1827,15 +1827,15 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.func_builder.borrow_mut().ins().load(ty, MemFlags::new(), p, offset.into())
 	}
 
-	fn stack_store(&self, x: Value, ss: StackSlot, offset: impl Into<i32>) -> Inst {
+	fn stack_store(&'_ self, x: Value, ss: StackSlot, offset: impl Into<i32>) -> Inst {
 		self.func_builder.borrow_mut().ins().stack_store(x, ss, offset.into())
 	}
 
-	fn store(&self, x: Value, p: Value, offset: impl Into<i32>) -> Inst {
+	fn store(&'_ self, x: Value, p: Value, offset: impl Into<i32>) -> Inst {
 		self.func_builder.borrow_mut().ins().store(MemFlags::new(), x, p, offset.into())
 	}
 
-	fn iconst(&self, nty: Type, n: impl Into<i64>) -> Value {
+	fn iconst(&'_ self, nty: Type, n: impl Into<i64>) -> Value {
 		self.func_builder.borrow_mut().ins().iconst(nty, n.into())
 	}
 
