@@ -408,11 +408,6 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						),
 						b1,
 					)
-					// let pv = self.imul_imm($pv, a0 as i64);
-					// let pv = self.iadd_imm(pv, b0 as i64);
-					// let pv = self.imul_imm(pv, a1 as i64);
-					// let pv = self.iadd_imm(pv, b1 as i64);
-					// pv
 				} else {
 					let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
 					let x = $pv;
@@ -442,17 +437,6 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			};
 		}
 
-		// #[rustfmt::skip]
-		// macro_rules! id {
-		// 	($ty:ty, $pv:expr) => {{
-		// 		let (a0, b0, a1, b1) = generate_linear_maps!(i8);
-		// 		self.blur_iadd_imm(
-		// 			self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm($pv, a0), b0), a1),
-		// 			b1,
-		// 			)
-		// 	}};
-		// }
-
 		let olevel = heavy();
 		let random_type_partition = generate_random_partition(val_size);
 		let mut offset = 0i32;
@@ -464,41 +448,11 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				pv
 			} else {
 				match ty {
-					types::I8 => {
-						id!(i8, pv, ty, olevel)
-						// let (a0, b0, a1, b1) = generate_linear_maps!(i8);
-						// self.blur_iadd_imm(
-						// 	self.blur_imul_imm(
-						// 		self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0),
-						// 		a1,
-						// 	),
-						// 	b1,
-						// )
-					}
+					types::I8 => id!(i8, pv, ty, olevel),
 
-					types::I16 => {
-						id!(i16, pv, ty, olevel)
-						// let (a0, b0, a1, b1) = generate_linear_maps!(i16);
-						// self.blur_iadd_imm(
-						// 	self.blur_imul_imm(
-						// 		self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0),
-						// 		a1,
-						// 	),
-						// 	b1,
-						// )
-					}
+					types::I16 => id!(i16, pv, ty, olevel),
 
-					types::I32 => {
-						id!(i32, pv, ty, olevel)
-						// let (a0, b0, a1, b1) = generate_linear_maps!(i32);
-						// self.blur_iadd_imm(
-						// 	self.blur_imul_imm(
-						// 		self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0),
-						// 		a1,
-						// 	),
-						// 	b1,
-						// )
-					}
+					types::I32 => id!(i32, pv, ty, olevel),
 
 					types::I64 => id!(i64, pv, ty, olevel),
 
@@ -532,11 +486,6 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						),
 						b1,
 					)
-					// let pv = self.imul_imm($pv, a0 as i64);
-					// let pv = self.iadd_imm(pv, b0 as i64);
-					// let pv = self.imul_imm(pv, a1 as i64);
-					// let pv = self.iadd_imm(pv, b1 as i64);
-					// pv
 				} else {
 					let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
 					let x = $pv;
@@ -587,43 +536,6 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					types::I64 => id!(i32, pval, ty, olevel),
 					_ => pval,
 				}
-
-				// match ty {
-				// 	types::I8 => {
-				// 		let (a0, b0, a1, b1) = generate_linear_maps!(i8);
-				// 		self.blur_iadd_imm(
-				// 			self.blur_imul_imm(
-				// 				self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
-				// 				a1,
-				// 			),
-				// 			b1,
-				// 		)
-				// 	}
-
-				// 	types::I16 => {
-				// 		let (a0, b0, a1, b1) = generate_linear_maps!(i16);
-				// 		self.blur_iadd_imm(
-				// 			self.blur_imul_imm(
-				// 				self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
-				// 				a1,
-				// 			),
-				// 			b1,
-				// 		)
-				// 	}
-
-				// 	types::I32 => {
-				// 		let (a0, b0, a1, b1) = generate_linear_maps!(i32);
-				// 		self.blur_iadd_imm(
-				// 			self.blur_imul_imm(
-				// 				self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
-				// 				a1,
-				// 			),
-				// 			b1,
-				// 		)
-				// 	}
-
-				// 	_ => pval,
-				// }
 			};
 			self.store(pval, self.split_and_merge_value(ss_addr), offset);
 

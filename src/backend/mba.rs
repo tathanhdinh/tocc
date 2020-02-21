@@ -51,17 +51,6 @@ macro_rules! inverse {
             }
             y
         }
-		// fn inverse(a: $ty) -> $ty {
-		// 	let mut inv = 1 as $ty;
-		// 	loop {
-		// 		let inv_a = inv.wrapping_mul(a);
-		// 		if inv_a == 1 {
-		// 			break;
-		// 		}
-		// 		inv = inv_a;
-		// 	}
-		// 	inv
-		// }
 	};
 }
 
