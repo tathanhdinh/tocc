@@ -35,6 +35,7 @@ Optional arguments:
   -h, --help   print usage
   -o output    output object file
   -l           lightweight obfuscation
+  -w level     heavyweight obfuscation (default: 0)
   -v           verbose
   -f function  function to jit
   -j           jit
@@ -46,20 +47,25 @@ Optional arguments:
 ucc demo/slen.c -o slen_flat.o
 ```
 
-- The IR code can be observed with `-v`
+- The IR code can be observed with `-v` option:
 ```
 ucc demo/slen.c -o slen_flat.o -v
 ```
 
 - The mode JIT<sup>2</sup> can be used to see immediately the machine code, the function
-to jit must be specified
+to jit must be specified:
 ```
 ucc demo/slen.c -j -f slen
 ```
 
-- Sometimes, the obfuscated code is to *heavy*<sup>4</sup> then Hex-Rays may complain "too big function" (other decompilers like Ghidra or JEB have no such limit), then the mode *lightweight* can be used. In this mode, most of obfuscation transformations are removed
+- Sometimes, the obfuscated code is too *verbose*<sup>4</sup> then Hex-Rays may complain "too big function" (other decompilers like Ghidra or JEB have no such limit), then the mode *lightweight* can be used. In this mode, most of obfuscation transformations are removed:
 ```
 ucc demo/slen.c -o slen_light.o -l
+```
+
+- The mode *heavyweight* can be enabled to generate harder to reverse machine codes.
+```
+ucc demo/slen -o slen_heavy.o -w 3
 ```
 
 ## Notes

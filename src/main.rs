@@ -187,8 +187,7 @@ mod compilation_tests {
 		let (fptr, _) = am.compiled_function(fname).unwrap();
 
 		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn(i32) -> i32>(fptr) };
-		let i = unsafe { fptr(i) };
-		i
+		unsafe { fptr(i) }
 	}
 
 	fn compile_and_run_int_int_to_int(file: impl AsRef<Path>, fname: &str, i: i32, j: i32) -> i32 {

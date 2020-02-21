@@ -37,20 +37,31 @@ macro_rules! generate_polynomial_maps {
 		}};
 }
 
+// cf. https://lemire.me/blog/2017/09/18/computing-the-inverse-of-odd-integers/
 #[macro_export]
 macro_rules! inverse {
 	($ty:ty) => {
-		fn inverse(a: $ty) -> $ty {
-			let mut inv = 1 as $ty;
-			loop {
-				let inv_a = inv.wrapping_mul(a);
-				if inv_a == 1 {
-					break;
-				}
-				inv = inv_a;
-			}
-			inv
-		}
+		fn inverse(x: $ty) -> $ty {
+            let mut y = x.wrapping_mul(3) ^ 2;
+            loop {
+                y = y.wrapping_mul((2 as $ty).wrapping_sub(y.wrapping_mul(x)));
+                if x.wrapping_mul(y) == 1 {
+                    break;
+                }
+            }
+            y
+        }
+		// fn inverse(a: $ty) -> $ty {
+		// 	let mut inv = 1 as $ty;
+		// 	loop {
+		// 		let inv_a = inv.wrapping_mul(a);
+		// 		if inv_a == 1 {
+		// 			break;
+		// 		}
+		// 		inv = inv_a;
+		// 	}
+		// 	inv
+		// }
 	};
 }
 

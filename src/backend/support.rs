@@ -16,7 +16,6 @@ use crate::{
 			UnaryOperatorExpression,
 		},
 	},
-	heavy,
 };
 
 #[derive(Debug)]
@@ -196,13 +195,15 @@ pub fn generate_random_partition(sum: u32) -> Vec<Type> {
 		match num {
 			1 => partition.push(types::I8),
 			2 => partition.push(types::I16),
-			4 => {
-				if heavy() != 0 {
-					partition.push(types::I32)
-				} else {
-					continue;
-				}
-			}
+			4 => partition.push(types::I32),
+			// 8 => partition.push(types::I64),
+			// 4 => {
+			// 	if heavy() != 0 {
+			// 		partition.push(types::I32)
+			// 	} else {
+			// 		continue;
+			// 	}
+			// }
 			_ => {
 				continue;
 			}

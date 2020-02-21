@@ -167,15 +167,25 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 	let olevel = heavy();
 	for ty in random_type_partition {
 		let pv = ins!().ushr_imm(val, offset);
-		let pv = ins!().ireduce(ty, pv);
+		// let pv = ins!().ireduce(ty, pv);
+		let pv = if ty.bytes() < fb.func.dfg.value_type(pv).bytes() {
+			ins!().ireduce(ty, pv)
+		} else {
+			pv
+		};
 		let pv = match ty {
 			types::I8 => id!(i8, pv, ty, olevel),
 			types::I16 => id!(i16, pv, ty, olevel),
 			types::I32 => id!(i32, pv, ty, olevel),
+			types::I64 => id!(i64, pv, ty, olevel),
 			_ => pv,
 		};
 
-		let pv = fb.ins().uextend(val_ty, pv);
+		let pv = if ty.bytes() < fb.func.dfg.value_type(val).bytes() {
+			fb.ins().uextend(val_ty, pv)
+		} else {
+			pv
+		};
 		let pv = fb.ins().ishl_imm(pv, offset);
 		acc_val = blur_bor(fb, acc_val, pv);
 
@@ -186,14 +196,14 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 }
 
 fn create_entry_block(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty: Type) -> Block {
-	let trampoline_ebb = fb.create_block();
-	fb.append_block_params_for_function_params(trampoline_ebb);
+	let trampoline_block = fb.create_block();
+	fb.append_block_params_for_function_params(trampoline_block);
 
-	fb.switch_to_block(trampoline_ebb);
+	fb.switch_to_block(trampoline_block);
 	let mut param_vals = Vec::new();
 	for (i, ty) in param_ty.iter().enumerate() {
 		let val = {
-			let val = fb.block_params(trampoline_ebb)[i];
+			let val = fb.block_params(trampoline_block)[i];
 			let val = blur_value(fb, val);
 
 			if ty.bytes() < pointer_ty.bytes() {
@@ -204,7 +214,7 @@ fn create_entry_block(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty
 				fb.ins().stack_store(val, ss, 0);
 
 				let ss_addr = fb.ins().stack_addr(pointer_ty, ss, 0);
-				let ss_addr = blur_value(fb, ss_addr);
+				let ss_addr = blur_value(fb as _, ss_addr);
 				fb.ins().load(*ty, MemFlags::new(), ss_addr, 0)
 			} else {
 				val
@@ -213,20 +223,20 @@ fn create_entry_block(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty
 		param_vals.push(val);
 	}
 
-	let entry_ebb = fb.create_block();
+	let entry_block = fb.create_block();
 	for ty in param_ty {
-		fb.append_block_param(entry_ebb, *ty);
+		fb.append_block_param(entry_block, *ty);
 	}
-	fb.ins().jump(entry_ebb, &param_vals);
-	fb.seal_block(trampoline_ebb);
+	fb.ins().jump(entry_block, &param_vals);
+	fb.seal_block(trampoline_block);
 
-	fb.switch_to_block(entry_ebb);
-	fb.seal_block(entry_ebb);
-	entry_ebb
+	fb.switch_to_block(entry_block);
+	fb.seal_block(entry_block);
+	entry_block
 }
 
 fn declare_parameter_variables<'tcx>(
-	func_def: &'_ FunctionDefinition<'tcx>, fb: &'_ mut FunctionBuilder, entry_ebb: Block,
+	func_def: &'_ FunctionDefinition<'tcx>, fb: &'_ mut FunctionBuilder, entry_block: Block,
 	pointer_ty: Type, name_env: &'_ mut NameBindingEnvironment<'tcx>,
 	type_env: &'_ TypeBindingEnvironment<'tcx>,
 ) {
@@ -238,7 +248,7 @@ fn declare_parameter_variables<'tcx>(
 	for (i, Declaration { declarator, specifier }) in parameters.iter().enumerate() {
 		let Declarator { ident: Identifier(var_name), derived, .. } =
 			checked_unwrap_option!(declarator.as_ref());
-		let param_val = fb.block_params(entry_ebb)[i];
+		let param_val = fb.block_params(entry_block)[i];
 
 		match specifier {
 			VoidTy => todo!(),
@@ -323,11 +333,11 @@ pub fn translate_function<'clif, 'tcx>(
 
 	let mut name_env = outer_name_env.inherit();
 
-	let entry_ebb = create_entry_block(&mut func_builder, &param_ty, pointer_ty);
+	let entry_block = create_entry_block(&mut func_builder, &param_ty, pointer_ty);
 	declare_parameter_variables(
 		func_def,
 		&mut func_builder,
-		entry_ebb,
+		entry_block,
 		pointer_ty,
 		&mut name_env,
 		outer_type_env,
@@ -335,7 +345,7 @@ pub fn translate_function<'clif, 'tcx>(
 
 	let mut func_translator =
 		FunctionTranslator::new(func_builder, module, return_ty, name_env, outer_type_env);
-	func_translator.translate_statement(body, entry_ebb);
+	func_translator.translate_statement(body, entry_block);
 	func_translator.func_builder.get_mut().finalize();
 }
 
@@ -386,38 +396,114 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		let val_ty = self.value_type(val);
 		let val_size = val_ty.bytes();
 
+		#[rustfmt::skip]
+		macro_rules! id {
+			($ty:ty, $pv:expr, $tyv:expr, $olevel:expr) => {
+				if $olevel == 0 {
+					let (a0, b0, a1, b1) = generate_linear_maps!($ty);
+					self.blur_iadd_imm(
+						self.blur_imul_imm(
+							self.blur_iadd_imm(self.blur_imul_imm($pv, a0), b0),
+							a1,
+						),
+						b1,
+					)
+					// let pv = self.imul_imm($pv, a0 as i64);
+					// let pv = self.iadd_imm(pv, b0 as i64);
+					// let pv = self.imul_imm(pv, a1 as i64);
+					// let pv = self.iadd_imm(pv, b1 as i64);
+					// pv
+				} else {
+					let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
+					let x = $pv;
+					let mut px = self.iconst($tyv, coeffs[0] as i64); // a0
+					for i in 1..=$olevel {
+						let mut xi = x;
+						for _ in 1..i {
+							xi = self.blur_imul(xi, x);
+						}
+						let ai_xi = self.blur_imul_imm(xi, coeffs[i as usize] as i64);
+						px = self.blur_iadd(px, ai_xi);
+					}
+
+					let x = px;
+					let mut qx = self.iconst($tyv, inv_coeffs[0] as i64);
+					for i in 1..=$olevel {
+						let mut xi = x;
+						for _ in 1..i {
+							xi = self.blur_imul(xi, x);
+						}
+						let bi_xi = self.blur_imul_imm(xi, inv_coeffs[i as usize] as i64);
+						qx = self.blur_iadd(qx, bi_xi);
+					}
+
+					qx
+				}
+			};
+		}
+
+		// #[rustfmt::skip]
+		// macro_rules! id {
+		// 	($ty:ty, $pv:expr) => {{
+		// 		let (a0, b0, a1, b1) = generate_linear_maps!(i8);
+		// 		self.blur_iadd_imm(
+		// 			self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm($pv, a0), b0), a1),
+		// 			b1,
+		// 			)
+		// 	}};
+		// }
+
+		let olevel = heavy();
 		let random_type_partition = generate_random_partition(val_size);
 		let mut offset = 0i32;
 		let mut partitioned_values = Vec::new();
 		for ty in random_type_partition {
 			let pv = self.logical_shr_imm(val, offset);
 			let pv = checked_unwrap_option!(self.ireduce(ty, pv));
-			let pv = match ty {
-				types::I8 => {
-					let (a0, b0, a1, b1) = generate_linear_maps!(i8);
-					self.blur_iadd_imm(
-						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
-						b1,
-					)
-				}
+			let pv = if light() {
+				pv
+			} else {
+				match ty {
+					types::I8 => {
+						id!(i8, pv, ty, olevel)
+						// let (a0, b0, a1, b1) = generate_linear_maps!(i8);
+						// self.blur_iadd_imm(
+						// 	self.blur_imul_imm(
+						// 		self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0),
+						// 		a1,
+						// 	),
+						// 	b1,
+						// )
+					}
 
-				types::I16 => {
-					let (a0, b0, a1, b1) = generate_linear_maps!(i16);
-					self.blur_iadd_imm(
-						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
-						b1,
-					)
-				}
+					types::I16 => {
+						id!(i16, pv, ty, olevel)
+						// let (a0, b0, a1, b1) = generate_linear_maps!(i16);
+						// self.blur_iadd_imm(
+						// 	self.blur_imul_imm(
+						// 		self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0),
+						// 		a1,
+						// 	),
+						// 	b1,
+						// )
+					}
 
-				types::I32 => {
-					let (a0, b0, a1, b1) = generate_linear_maps!(i32);
-					self.blur_iadd_imm(
-						self.blur_imul_imm(self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0), a1),
-						b1,
-					)
-				}
+					types::I32 => {
+						id!(i32, pv, ty, olevel)
+						// let (a0, b0, a1, b1) = generate_linear_maps!(i32);
+						// self.blur_iadd_imm(
+						// 	self.blur_imul_imm(
+						// 		self.blur_iadd_imm(self.blur_imul_imm(pv, a0), b0),
+						// 		a1,
+						// 	),
+						// 	b1,
+						// )
+					}
 
-				_ => pv,
+					types::I64 => id!(i64, pv, ty, olevel),
+
+					_ => pv,
+				}
 			};
 
 			let pv = checked_unwrap_option!(self.uextend(val_ty, pv));
@@ -434,54 +520,110 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			return val;
 		}
 
+		#[rustfmt::skip]
+		macro_rules! id {
+			($ty:ty, $pv:expr, $tyv:expr, $olevel:expr) => {
+				if $olevel == 0 {
+					let (a0, b0, a1, b1) = generate_linear_maps!($ty);
+					self.blur_iadd_imm(
+						self.blur_imul_imm(
+							self.blur_iadd_imm(self.blur_imul_imm($pv, a0), b0),
+							a1,
+						),
+						b1,
+					)
+					// let pv = self.imul_imm($pv, a0 as i64);
+					// let pv = self.iadd_imm(pv, b0 as i64);
+					// let pv = self.imul_imm(pv, a1 as i64);
+					// let pv = self.iadd_imm(pv, b1 as i64);
+					// pv
+				} else {
+					let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
+					let x = $pv;
+					let mut px = self.iconst($tyv, coeffs[0] as i64); // a0
+					for i in 1..=$olevel {
+						let mut xi = x;
+						for _ in 1..i {
+							xi = self.blur_imul(xi, x);
+						}
+						let ai_xi = self.blur_imul_imm(xi, coeffs[i as usize] as i64);
+						px = self.blur_iadd(px, ai_xi);
+					}
+
+					let x = px;
+					let mut qx = self.iconst($tyv, inv_coeffs[0] as i64);
+					for i in 1..=$olevel {
+						let mut xi = x;
+						for _ in 1..i {
+							xi = self.blur_imul(xi, x);
+						}
+						let bi_xi = self.blur_imul_imm(xi, inv_coeffs[i as usize] as i64);
+						qx = self.blur_iadd(qx, bi_xi);
+					}
+
+					qx
+				}
+			};
+		}
+
 		let val_ty = self.value_type(val);
 		let val_size = val_ty.bytes();
 
 		let ss = self.create_stack_slot(val_size as _);
 		let ss_addr = self.stack_addr(ss, 0);
 
+		let olevel = heavy();
 		let random_type_partition = generate_random_partition(val_size);
 		let mut offset = 0i32;
 		for ty in random_type_partition {
 			let pval = {
 				let pval = self.logical_shr_imm(val, offset * 8);
 				let pval = checked_unwrap_option!(self.ireduce(ty, pval));
+
 				match ty {
-					types::I8 => {
-						let (a0, b0, a1, b1) = generate_linear_maps!(i8);
-						self.blur_iadd_imm(
-							self.blur_imul_imm(
-								self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
-								a1,
-							),
-							b1,
-						)
-					}
-
-					types::I16 => {
-						let (a0, b0, a1, b1) = generate_linear_maps!(i16);
-						self.blur_iadd_imm(
-							self.blur_imul_imm(
-								self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
-								a1,
-							),
-							b1,
-						)
-					}
-
-					types::I32 => {
-						let (a0, b0, a1, b1) = generate_linear_maps!(i32);
-						self.blur_iadd_imm(
-							self.blur_imul_imm(
-								self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
-								a1,
-							),
-							b1,
-						)
-					}
-
+					types::I8 => id!(i8, pval, ty, olevel),
+					types::I16 => id!(i16, pval, ty, olevel),
+					types::I32 => id!(i32, pval, ty, olevel),
+					types::I64 => id!(i32, pval, ty, olevel),
 					_ => pval,
 				}
+
+				// match ty {
+				// 	types::I8 => {
+				// 		let (a0, b0, a1, b1) = generate_linear_maps!(i8);
+				// 		self.blur_iadd_imm(
+				// 			self.blur_imul_imm(
+				// 				self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
+				// 				a1,
+				// 			),
+				// 			b1,
+				// 		)
+				// 	}
+
+				// 	types::I16 => {
+				// 		let (a0, b0, a1, b1) = generate_linear_maps!(i16);
+				// 		self.blur_iadd_imm(
+				// 			self.blur_imul_imm(
+				// 				self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
+				// 				a1,
+				// 			),
+				// 			b1,
+				// 		)
+				// 	}
+
+				// 	types::I32 => {
+				// 		let (a0, b0, a1, b1) = generate_linear_maps!(i32);
+				// 		self.blur_iadd_imm(
+				// 			self.blur_imul_imm(
+				// 				self.blur_iadd_imm(self.blur_imul_imm(pval, a0), b0),
+				// 				a1,
+				// 			),
+				// 			b1,
+				// 		)
+				// 	}
+
+				// 	_ => pval,
+				// }
 			};
 			self.store(pval, self.split_and_merge_value(ss_addr), offset);
 
@@ -615,95 +757,95 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 	fn translate_do_while_statement(
 		&'_ mut self, DoWhileStatement { statement, condition }: &'_ DoWhileStatement<'tcx>,
-		_current_ebb: Block,
+		_current_block: Block,
 	) -> Option<Block> {
 		use ConcreteValue::*;
 
-		let loop_ebb = self.new_block();
-		let exit_ebb = self.new_block();
+		let loop_block = self.new_block();
+		let exit_block = self.new_block();
 
-		self.insert_jmp(loop_ebb);
+		self.insert_jmp(loop_block);
 
-		self.switch_to_ebb(loop_ebb);
-		self.translate_statement(statement.as_ref(), loop_ebb);
+		self.switch_to_block(loop_block);
+		self.translate_statement(statement.as_ref(), loop_block);
 		let SimpleTypedConcreteValue { val, .. } = self.translate_expression(condition);
 		let cond = match val {
 			ConstantTy(c) => self.iconst(types::I64, c),
 			ValueTy(v) => v,
 			_ => semantically_unreachable!(),
 		};
-		self.insert_brz(cond, exit_ebb);
-		self.insert_jmp(loop_ebb);
-		self.seal_ebb(loop_ebb);
+		self.insert_brz(cond, exit_block);
+		self.insert_jmp(loop_block);
+		self.seal_block(loop_block);
 
-		self.switch_to_ebb(exit_ebb);
-		self.seal_ebb(exit_ebb);
+		self.switch_to_block(exit_block);
+		self.seal_block(exit_block);
 
-		Some(exit_ebb)
+		Some(exit_block)
 	}
 
 	fn translate_while_statement(
 		&'_ mut self, WhileStatement { condition, statement }: &'_ WhileStatement<'tcx>,
-		_current_ebb: Block,
+		_current_block: Block,
 	) -> Option<Block> {
 		use ConcreteValue::*;
 
-		let header_ebb = self.new_block();
-		let loop_ebb = self.new_block();
-		let exit_ebb = self.new_block();
+		let header_block = self.new_block();
+		let loop_block = self.new_block();
+		let exit_block = self.new_block();
 
-		self.insert_jmp(header_ebb);
+		self.insert_jmp(header_block);
 
-		// header EBB
-		self.switch_to_ebb(header_ebb);
+		// header block
+		self.switch_to_block(header_block);
 		let SimpleTypedConcreteValue { val, .. } = self.translate_expression(condition);
 		let cond = match val {
 			ConstantTy(c) => self.iconst(types::I64, c),
 			ValueTy(v) => v,
 			_ => semantically_unreachable!(),
 		};
-		self.insert_brz(cond, exit_ebb);
-		self.insert_jmp(loop_ebb);
+		self.insert_brz(cond, exit_block);
+		self.insert_jmp(loop_block);
 
-		// loop EBB
-		self.switch_to_ebb(loop_ebb);
-		self.seal_ebb(loop_ebb);
-		self.translate_statement(statement.as_ref(), loop_ebb);
-		self.insert_jmp(header_ebb);
+		// loop block
+		self.switch_to_block(loop_block);
+		self.seal_block(loop_block);
+		self.translate_statement(statement.as_ref(), loop_block);
+		self.insert_jmp(header_block);
 
-		self.seal_ebb(header_ebb);
+		self.seal_block(header_block);
 
-		self.switch_to_ebb(exit_ebb);
-		self.seal_ebb(exit_ebb);
+		self.switch_to_block(exit_block);
+		self.seal_block(exit_block);
 
-		Some(exit_ebb)
+		Some(exit_block)
 	}
 
 	fn translate_compound_statements(
-		&'_ mut self, stmts: &'_ [Statement<'tcx>], current_ebb: Block,
+		&'_ mut self, stmts: &'_ [Statement<'tcx>], current_block: Block,
 	) -> Option<Block> {
 		let original_name_env = self.name_env.clone();
 		let original_type_env = self.type_env.clone();
 
 		let local_name_env = self.name_env.inherit();
 		self.name_env = local_name_env;
-		let mut ebb = Some(current_ebb);
+		let mut block = Some(current_block);
 		for stmt in stmts {
-			ebb = self.translate_statement(stmt, ebb.unwrap());
-			if ebb.is_none() {
+			block = self.translate_statement(stmt, block.unwrap());
+			if block.is_none() {
 				break;
 			}
 		}
 		self.name_env = original_name_env;
 		self.type_env = original_type_env;
 
-		ebb
+		block
 	}
 
 	fn translate_for_statement(
 		&'_ mut self,
 		ForStatement { initializer, condition, step, statement }: &'_ ForStatement<'tcx>,
-		_current_ebb: Block,
+		_current_block: Block,
 	) -> Option<Block> {
 		use ConcreteValue::*;
 
@@ -711,43 +853,43 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			self.translate_expression(initializer);
 		}
 
-		let header_ebb = self.new_block();
-		let loop_ebb = self.new_block();
-		let exit_ebb = self.new_block();
+		let header_block = self.new_block();
+		let loop_block = self.new_block();
+		let exit_block = self.new_block();
 
-		self.insert_jmp(header_ebb);
+		self.insert_jmp(header_block);
 
-		// header EBB
-		self.switch_to_ebb(header_ebb);
+		// header block
+		self.switch_to_block(header_block);
 		let SimpleTypedConcreteValue { val, .. } = self.translate_expression(condition);
 		let cond = match val {
 			ConstantTy(c) => self.iconst(types::I64, c),
 			ValueTy(v) => v,
 			_ => semantically_unreachable!(),
 		};
-		self.insert_brz(cond, exit_ebb);
-		self.insert_jmp(loop_ebb);
+		self.insert_brz(cond, exit_block);
+		self.insert_jmp(loop_block);
 
-		// loop EBB
-		self.switch_to_ebb(loop_ebb);
-		self.seal_ebb(loop_ebb);
-		self.translate_statement(statement.as_ref(), loop_ebb);
+		// loop block
+		self.switch_to_block(loop_block);
+		self.seal_block(loop_block);
+		self.translate_statement(statement.as_ref(), loop_block);
 		if let Some(step) = step.as_ref() {
 			self.translate_expression(step);
 		}
-		self.insert_jmp(header_ebb);
-		self.seal_ebb(header_ebb);
+		self.insert_jmp(header_block);
+		self.seal_block(header_block);
 
-		self.switch_to_ebb(exit_ebb);
-		self.seal_ebb(exit_ebb);
+		self.switch_to_block(exit_block);
+		self.seal_block(exit_block);
 
-		Some(exit_ebb)
+		Some(exit_block)
 	}
 
 	fn translate_if_statement(
 		&'_ mut self,
 		IfStatement { condition, then_statement, else_statement }: &'_ IfStatement<'tcx>,
-		_current_ebb: Block,
+		_current_block: Block,
 	) -> Option<Block> {
 		use ConcreteValue::*;
 
@@ -758,52 +900,52 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			_ => semantically_unreachable!(),
 		};
 
-		let then_ebb = self.new_block();
-		let merge_ebb = self.new_block();
+		let then_block = self.new_block();
+		let merge_block = self.new_block();
 		if let Some(else_stmt) = else_statement.as_ref() {
-			let else_ebb = self.new_block();
-			self.insert_brz(cond, else_ebb);
-			self.insert_jmp(then_ebb);
+			let else_block = self.new_block();
+			self.insert_brz(cond, else_block);
+			self.insert_jmp(then_block);
 
-			// else EBB
-			self.switch_to_ebb(else_ebb);
-			self.seal_ebb(else_ebb);
-			if self.translate_statement(else_stmt.as_ref(), else_ebb).is_some() {
-				self.insert_jmp(merge_ebb);
+			// else block
+			self.switch_to_block(else_block);
+			self.seal_block(else_block);
+			if self.translate_statement(else_stmt.as_ref(), else_block).is_some() {
+				self.insert_jmp(merge_block);
 			}
 		} else {
-			self.insert_brz(cond, merge_ebb);
-			self.insert_jmp(then_ebb);
+			self.insert_brz(cond, merge_block);
+			self.insert_jmp(then_block);
 		}
 
-		// then EBB
-		self.switch_to_ebb(then_ebb);
-		self.seal_ebb(then_ebb);
+		// then block
+		self.switch_to_block(then_block);
+		self.seal_block(then_block);
 
-		if self.translate_statement(then_statement.as_ref(), then_ebb).is_some() {
-			self.insert_jmp(merge_ebb);
+		if self.translate_statement(then_statement.as_ref(), then_block).is_some() {
+			self.insert_jmp(merge_block);
 		}
 
-		self.switch_to_ebb(merge_ebb);
-		self.seal_ebb(merge_ebb);
+		self.switch_to_block(merge_block);
+		self.seal_block(merge_block);
 
-		Some(merge_ebb)
+		Some(merge_block)
 	}
 
 	fn translate_statement(
-		&'_ mut self, stmt: &'_ Statement<'tcx>, current_ebb: Block,
+		&'_ mut self, stmt: &'_ Statement<'tcx>, current_block: Block,
 	) -> Option<Block> {
 		use ConcreteValue::*;
 		use Statement::*;
 
 		match stmt {
-			DoWhileStmt(stmt) => self.translate_do_while_statement(stmt, current_ebb),
+			DoWhileStmt(stmt) => self.translate_do_while_statement(stmt, current_block),
 
-			WhileStmt(stmt) => self.translate_while_statement(stmt, current_ebb),
+			WhileStmt(stmt) => self.translate_while_statement(stmt, current_block),
 
-			ForStmt(stmt) => self.translate_for_statement(stmt, current_ebb),
+			ForStmt(stmt) => self.translate_for_statement(stmt, current_block),
 
-			IfStmt(stmt) => self.translate_if_statement(stmt, current_ebb),
+			IfStmt(stmt) => self.translate_if_statement(stmt, current_block),
 
 			ReturnStmt(expr) => {
 				if let Some(expr) = expr {
@@ -823,7 +965,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			}
 
 			CompoundStmt(stmts) => {
-				self.translate_compound_statements(stmts.as_slice(), current_ebb)
+				self.translate_compound_statements(stmts.as_slice(), current_block)
 			}
 
 			ExpressionStmt(expr) => {
@@ -833,12 +975,12 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					// E.g. x = 5 is a binary expression where the operator is assignment
 					self.translate_expression(expr);
 				}
-				Some(current_ebb)
+				Some(current_block)
 			}
 
 			DeclarationStmt(decl) => {
 				self.translate_declaration(decl);
-				Some(current_ebb)
+				Some(current_block)
 			}
 		}
 	}
@@ -1796,9 +1938,11 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 	fn new_block(&'_ self) -> Block { self.func_builder.borrow_mut().create_block() }
 
-	fn switch_to_ebb(&'_ self, ebb: Block) { self.func_builder.borrow_mut().switch_to_block(ebb) }
+	fn switch_to_block(&'_ self, block: Block) {
+		self.func_builder.borrow_mut().switch_to_block(block)
+	}
 
-	fn seal_ebb(&'_ self, ebb: Block) { self.func_builder.borrow_mut().seal_block(ebb) }
+	fn seal_block(&'_ self, block: Block) { self.func_builder.borrow_mut().seal_block(block) }
 
 	fn value_type(&'_ self, val: Value) -> Type {
 		self.func_builder.borrow_mut().func.dfg.value_type(val)
@@ -2018,17 +2162,17 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.func_builder.borrow_mut().ins().bxor_imm(x, y.into())
 	}
 
-	fn insert_brz(&'_ self, cond: Value, ebb: Block) -> Inst {
-		self.func_builder.borrow_mut().ins().brz(cond, ebb, &[])
+	fn insert_brz(&'_ self, cond: Value, block: Block) -> Inst {
+		self.func_builder.borrow_mut().ins().brz(cond, block, &[])
 	}
 
 	#[allow(dead_code)]
-	fn insert_br_icmp(&'_ self, cond: impl Into<IntCC>, x: Value, y: Value, ebb: Block) -> Inst {
-		self.func_builder.borrow_mut().ins().br_icmp(cond, x, y, ebb, &[])
+	fn insert_br_icmp(&'_ self, cond: impl Into<IntCC>, x: Value, y: Value, block: Block) -> Inst {
+		self.func_builder.borrow_mut().ins().br_icmp(cond, x, y, block, &[])
 	}
 
-	fn insert_jmp(&'_ self, ebb: Block) -> Inst {
-		self.func_builder.borrow_mut().ins().jump(ebb, &[])
+	fn insert_jmp(&'_ self, block: Block) -> Inst {
+		self.func_builder.borrow_mut().ins().jump(block, &[])
 	}
 
 	#[allow(dead_code)]
