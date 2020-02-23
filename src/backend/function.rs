@@ -449,13 +449,9 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			} else {
 				match ty {
 					types::I8 => id!(i8, pv, ty, olevel),
-
 					types::I16 => id!(i16, pv, ty, olevel),
-
 					types::I32 => id!(i32, pv, ty, olevel),
-
 					types::I64 => id!(i64, pv, ty, olevel),
-
 					_ => pv,
 				}
 			};
