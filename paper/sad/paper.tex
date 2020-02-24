@@ -9,7 +9,14 @@
 \usepackage{bmpsize}
 \usepackage{xcolor}
 \usepackage{lipsum}
-\usepackage[colorlinks=true,urlcolor=black]{hyperref}
+% \usepackage[colorlinks=true,urlcolor=black,pdftitle="Type Flattening Obfuscation"]{hyperref}
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks = true,
+  urlcolor = black,
+  pdftitle = "Type Flattening Obfuscation",
+  pdfauthor = "Ta Thanh Dinh"
+}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \usepackage[sorting=ynt,sortcites=true,backend=bibtex8,doi=false,maxnames=6,isbn=false,firstinits=true]{biblatex}
@@ -27,8 +34,8 @@
 \begin{abstract}
   Beside data and control flow, high-level types are important in binary code analysis, particularly in
   decompilation. Some research papers have introduced methods to map machine-dependent objects into types
-  of some C-like type system. For the anti-decompilation/obfuscation purpose, we
-  present a novel technique which bypasses existing type recovery approaches. We have implemented a
+  of some C-like type system. For the obfuscation/anti-decompilation purpose, we
+  present a technique which bypasses existing type recovery approaches. We have implemented a
   prototype obfuscating C compiler to demonstrate the technique, the compiler is
   given open source.
 \end{abstract}
@@ -38,6 +45,7 @@ type recovery, decompilation, obfuscation
 \end{IEEEkeywords}
 
 \section{Introduction}
+\noindent
 Binary code \emph{decompilation}~\cite{cifuentes_reverse_1994} is to transform the low-level,
 machine-dependent code of a program into a high-level form, like code of a high-level language.
 In almost all academic research papers and commerical products, the target language is C.
@@ -46,7 +54,7 @@ phases~\cite{cifuentes_reverse_1994,van_emmerik_static_2007}: disassembly, funct
 representation (IR) lifting, control-flow graph (CFG) recovery, high-level variables detection,
 type (i.e. variable types and function signatures) recovery, etc. Each phase requires
 particular but not independent~\cite{schwarz_disassembly_2002} analysis techniques: the results of
-a phase can affect another phase. The analyzed program is
+one can affect another. The analyzed program is
 transformed gradually into a higher-level, more abstract and more understandable representation.
 
 In the opposite direction, binary code \emph{obfuscation} is a method to protect the low-level code from
@@ -61,35 +69,75 @@ which hide certain properties of the code.
 An optional feature of binary code decompilation is \emph{type reconstruction}, namely to recover high-level types from machine-dependent
 objects~\cite{mycroft_type-based_1999, van_emmerik_static_2007}. This is the research objective of some
 research papers~\cite{lee_tie_2011,elwazeer_scalable_2013,robbins_minx_2016,noonan_polymorphic_2016},
-and killing feature of some commercial~\cite{noauthor_hex-rays_nodate,noauthor_jeb_nodate}
+and killing feature of commercial~\cite{noauthor_hex-rays_nodate,noauthor_jeb_nodate}
 as well as open source~\cite{noauthor_ghidra_nodate} binary code analysis tools. Beside decompilation,
 types and particularly \emph{function signatures} are also essential in numerous applications,
 e.g. static binary rewriting~\cite{bernat_anywhere_2011,anand_compiler-level_2013} and
 raising~\cite{yadavalli_raising_2019},
 see for example~\cite{caballero_type_2016} for a survey. Thus the knowledge about types
-expand the attack surface because more analysis can be applied on the programs need to be protected.
+expand the attack surface since more analysis can be applied on the programs.
 
-Despite of successes in type reconstruction and the need of protecting function signatures, to the best
-of our knowledge there is no explicit effort in protecting type information. This paper presents a method
-for type obfuscation, the principal ideas are that the compiler does not need to preserve all information
-about high-level types (type erasure), with specific tricks we can exploit the \emph{semantics gap} between
+Despite of successes in binary type reconstruction and the need of protecting function signatures, to the best
+of our knowledge there is no explicit effort in hiding type information. This paper presents a method
+for type obfuscation, the principal idea is based on the fact that the compiler does not need to preserve all information
+about high-level types (type erasure), then with specific tricks we can exploit the \emph{semantics gap} between
 the high-level language and machine code to make some information very hard if not impossible
-to be recovered. We do not claim that all type information can be hidden, the attacker can eventually know some but it is
-not possible to distinguish the concrete underlying types from one to another,
+to be recovered. We do not claim that all type information can be hidden, the attacker can
+eventually know some but it would be hard to distinguish the concrete underlying types from one to another,
 thus the proposed notion of \emph{type flattening}.
 
-The ideas are implemented in \emph{uCc}, an open source obfuscating C compiler which obfuscates
-function signatures. Our goal is to make functions in binaries generated by \emph{uCc} can be
+We implement the tricks in \emph{uCc}, an open source obfuscating C compiler which obfuscates
+function signatures. The functions in binaries generated by \emph{uCc} can be
 perfectly analyzed by classical procedures (boundary detection, disassembling, CFG recovery, etc),
-only their signatures are obfuscated. By that way, we can exclusively evaluate the effectiveness of type
-obfuscation tricks. We have found that Mixed Boolean Arithmetic (MBA)
-expressions~\cite{eyrolles_obfuscation_2017,zhou_information_2007} are very useful for the goal.
+only their signatures are obfuscated. That way, we can evaluate the effectiveness of type
+obfuscation tricks on function signatures while excluding unwanted obfuscation effects that may come from (bad) results
+of other analysis phases.
+We find that Mixed Boolean Arithmetic (MBA)
+expressions~\cite{eyrolles_obfuscation_2017,zhou_information_2007} are a good match for the goal.
 
-\subsection{Contributions}
-In summary, the paper makes the following contributions:
+% \subsection*{Contributions}
+% \noindent
+In summary, our contributions are as follows:
+\begin{itemize}
+  \item We introduce the notion of \emph{type flattening}, it aims at protecting a high-level
+  property (types) of the program in contrast with classical methods which focus on lower
+  properties as data or control flow.
 
+  \item We build a prototype compiler \emph{uCc} to realize the ideas of type
+  flattening obfuscation. \emph{uCc} also implements the permutation polynomials
+  of MBA~\cite{zhou_information_2007} while other open source state-of-the-art obfuscators
+  (e.g. Tigress~\cite{noauthor_tigress_nodate}) give only basic arithmetic encoding expressions.
+
+  \item We evaluate the binaries generated by \emph{uCc} against decent decompilers, the results
+  show that no one can detect correctly the underlying types of arguments on function signatures: the
+  original types are indistinguishable from the highest types in the C's integer conversion rank.
+\end{itemize}
 
 \section{Brief history of binary type inference}
+\noindent
+We review quickly some semantics-based approaches in high-level type recovery from binary codes. Though a broad survey for research
+up until 2015 has given in~\cite{caballero_type_2016}, it sustained a storage point of view bias: types are attached
+always with some storage primitives, there are no essential differences between types and
+data structures. Actually, types (in statically typed languages) are compile-time constraints, they
+may or may not have runtime storage imprints. An example is C's \emph{type qualifier} (e.g.
+\texttt{const}, \texttt{restrict}), or in general any
+\emph{refinement type} should not leave storage traces. Moreover, the survey lacks some important
+papers which are only published later~\cite{noonan_polymorphic_2016,robbins_minx_2016}.
+
+\subsection{Origin}
+\noindent
+Though earlier ideas have been proposed in another context~\cite{shivers_data-flow_1990},
+the research in recovering types from low-level languages may begin with the classic paper of
+Mycroft~\cite{mycroft_type-based_1999} in his interest of decompilation. The basic idea is very
+similar to which have done by Damas-Hindley-Milner~\cite{milner_theory_1978,damas_principal_1982} in
+the ML language: types of variables and functions are checked/referenced automatically
+from how they are used in the program's source code. For example, given an expression
+\begin{equation*}
+  z = x + y
+\end{equation*}
+then at least $x$ or $y$ must have numeric type, it is impossible that both of them are pointers
+since adding two pointers is forbidden in C.
+
 % Since the existence of obfuscation, code analysis has been also evolved
 
 % This document was successfully compiled into a compliant pdf file by
