@@ -75,7 +75,7 @@ as well as open source~\cite{noauthor_ghidra_nodate} binary code analysis tools.
 types and particularly \emph{function signatures} are also essential in numerous applications,
 e.g. static binary rewriting~\cite{bernat_anywhere_2011,anand_compiler-level_2013} and
 raising~\cite{yadavalli_raising_2019},
-see for example~\cite{caballero_type_2016} for a survey. Thus the knowledge about types
+see for example~\cite{caballero_type_2016} for a more completed list. Thus the knowledge about types
 expand the attack surface since more analysis can be applied on the programs.
 
 Despite of successes in binary type reconstruction and the need of protecting function signatures, to the best
@@ -119,8 +119,8 @@ In summary, our contributions are as follows:
 \section{Brief history of binary type inference}
 \noindent
 In statically typed languages, the compiler does not need preserve source code level type information in
-the generated machine code (type erasure), then type recovering requires special techniques. Though a broad survey for research
-up until 2015 has given in~\cite{caballero_type_2016}, it sustained a storage point of view bias: types are attached
+the generated machine code (type erasure), then type recovering requires special techniques. A broad survey for research
+up until 2015 can be referenced in~\cite{caballero_type_2016}, but it sustained a storage point of view bias: types are attached
 always with some storage primitives (e.g. registers, memory), there are no essential differences between types and
 data structures. Actually, types are compile-time constraints, they
 may or may not have runtime storage imprints. An example is C's \emph{type qualifier} (e.g.
@@ -130,8 +130,10 @@ Also, the survey lacks some important
 papers which are only published until later~\cite{noonan_polymorphic_2016,robbins_minx_2016}.
 
 We review quickly some semantics-based approaches, recent research using machine learning~\cite{maier_typeminer_2019}
-or statistical language model~\cite{katz_estimating_2016} are out of scope of the paper. From now on,
-unless otherwise stated, the target language is C which is also the target language of almost all
+or statistical language model~\cite{katz_estimating_2016} are out of scope of the paper.
+We omit also the phase of variable/function detection, which is an essential step before
+type recovering, this work can be referenced in~\cite{balakrishnan_divine_2007} for example.
+From now on, unless otherwise stated, the target language is C which is also the target language of almost all
 research papers and tools in the domain.
 
 \subsection{Initial work}
@@ -164,7 +166,7 @@ then $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$.
 
 To overcome these problems, Van Emmerik has proposed a \emph{data-flow based}
 (constrast with Mycroft's \emph{constraint based}) approach where type information of an object will be refined gradually,
-instead of binding it early to some fixed type. He proposed using \emph{subtyping lattice} to express the
+instead of binding it early to some fixed type. He proposed using \emph{subtype lattices} to express the
 preciseness of type information:
 \begin{figure}[h]
   \centering
@@ -172,15 +174,28 @@ preciseness of type information:
     & \mathtt{void*} \arrow{dl}[sloped,above]{<\colon} \arrow{dr}[sloped, above]{\colon>} & \\
     \mathtt{ptr}(S) & & \mathtt{ptr}(\mathtt{int})
   \end{tikzcd}
-  \caption{Subtype lattice}
+  \caption{A subtype lattice}
 \end{figure}
 $p'$ will not be early bound as $\mathtt{ptr}(S)$, instead $\vdash p' \colon \mathtt{void*}$
-(adding integer to pointer does not result in pointer of the same type). The precise type
-is only assigned later, when met with another type, derived from another use:
+(adding integer to pointer does not result in pointer of the same type) where
+$\mathtt{ptr}(S) <\colon \mathtt{void*}$. The precise type
+is only assigned later, when met with $\mathtt{ptr}(\mathtt{int})$,
+derived from another use, e.g.:
 \begin{equation*}
   *{p'} + m
 \end{equation*}
-where $\vdash m \colon \mathtt{int}$, so $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$.
+where $\vdash m \colon \mathtt{int}$, it then derives $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$,
+finally $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$ since
+$\mathtt{ptr}(\mathtt{int}) = \mathtt{ptr}(\mathtt{int}) \sqcap \mathtt{void*}$.
+
+The lack of an IR with well-defined semantics limits Van Emmerik's work, he had to use ad-hoc
+type patterns to recognize and propagate type/subtype relations.
+
+\subsection{Improvement}
+\noindent
+Lee et al.~\cite{lee_tie_2011} had the same idea about using type lattice to represent the preciseness
+of type information, but they did not work directly on machine language, an IR named BIL
+(BAP Instruction Language) has been used instead. This make the type analysis more flexible,
 
 % Since the existence of obfuscation, code analysis has been also evolved
 
