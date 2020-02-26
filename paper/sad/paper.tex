@@ -193,7 +193,7 @@ type patterns to recognize and propagate type/subtype relations.
 \subsection{Improvement}
 \noindent
 Lee et al.~\cite{lee_tie_2011} had the same idea of using type lattice for type preciseness,
-their constraint generation rules are more detail and support more cases
+their deduction rules are more detail and support more cases
 (e.g. calls and dynamic jumps) but basically similar to Van Emmerik's. For example,
 the previously discussed assignment
 \begin{equation*}
@@ -201,13 +201,30 @@ the previously discussed assignment
 \end{equation*}
 will generate $\vdash \mathtt{ptr}(T_{\beta}) <\colon T(p')$ where $T_{\beta}$ is
 a type variable and $T(p')$ means type of $p'$, but $T_{\beta}$ is not free (never used outside
-the assignment) then this constraint is nothing but $\vdash p' \colon \mathtt{void*}$. The notable
+the assignment) then this constraint is equivalent with $\vdash p' \colon \mathtt{void*}$. The notable
 improvement is the use of an IR named BIL (BAP Instruction Language), this makes the type analysis
 simpler and more coherent.
 
-The previously discussed approaches have limits when dealing with low-level polymorphism
+\subsubsection*{Polymorphism}
+The approaches discussed until now only consider basic cases of \emph{low-level polymorphism}, e.g.
+adding a pointer to an integer may result in a pointer of the same type or not, but there are more.
+For example, \texttt{mov} can freely move data between signed and unsigned values, or even a constant
+can behaves as different types: zero can be used as an integer type, but it can be used also as
+\texttt{NULL} pointer. Another case is the indistinguishability between a pointer to a struct and
+a pointer to the first field of this struct. All come from the low-level appearance of
+\emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
 
-Noonan et al.~\cite{noonan_polymorphic_2016}
+To handle these problems, Noonan et al.~\cite{noonan_polymorphic_2016} used subtyping relations
+in almost all deduction rules. The effect of data moving $x = y$ will be represented by
+$\vdash T(y) <\colon T(x)$. More importantly, they propose a
+\emph{type capability} model where each type is attached with several labels representing it capabilities.
+For example, the pointer dereference and assignment
+\begin{equation*}
+  x = *p
+\end{equation*}
+will result in $\vdash T(p).\mathtt{load} <\colon T(x)$, means $p$ is a readable pointer, and
+the type of the dereferenced value is a subtype of type of $x$. That allows to fully represents
+constraints on inner structure of $p$ (if exists)
 
 \subsection{Existing tools}
 
