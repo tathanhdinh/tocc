@@ -214,19 +214,36 @@ can behaves as different types: zero can be used as an integer type, but it can 
 a pointer to the first field of this struct. All come from the low-level appearance of
 \emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
 
-To handle these problems, Noonan et al.~\cite{noonan_polymorphic_2016} used subtyping relations
-in almost all deduction rules. The effect of data moving $x = y$ will be represented by
-$\vdash T(y) <\colon T(x)$. More importantly, they propose a
-\emph{type capability} model where each type is attached with several labels representing it capabilities.
+To handle these problems, Noonan et al.~\cite{noonan_polymorphic_2016} have used subtyping
+in all deduction rules. The effect of data moving $x = y$ will be represented by
+$\vdash T(y) <\colon T(x)$. More importantly, they proposed a
+\emph{type capability} model: each object is attached with several labels representing it capabilities.
 For example, the pointer dereference and assignment
 \begin{equation*}
   x = *p
 \end{equation*}
 will result in $\vdash T(p).\mathtt{load} <\colon T(x)$, means $p$ is a readable pointer, and
-the type of the dereferenced value is a subtype of type of $x$. The labels on $p$ allows to
+the type of the dereferenced value is a subtype of type of $x$. The labels on $T(p)$ allows to
 represent constraints on inner structure of $p$ (if exists) and $p$ itself.
 
+The lattices is used for subtyping relations, and type analysis is proceeded on an IR,
+similar with Lee et al.
+
 \subsection{Existing tools}
+Only Van Emmerik gives an open source implementation of type recovery in his Boomerang decompiler.
+The research of Lee et al and Noonan et al. are implemented in their commercial products, which
+are not open. There are also other commercial tools whose the inner research is not published,
+most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and JEB~\cite{noauthor_jeb_nodate}. Only
+published recently, Ghidra~\cite{noauthor_ghidra_nodate} is an open-source decompiler which
+gives also type recovery, we still do not understand how it works.
+
+It may worth noting that some decompilers do not have the type recovery phase
+
+\subsection{Data flow}
+
+\section{Type flattening}
+
+\section{Implementation and evaluation}
 
 %  as in the previous approach.
 
