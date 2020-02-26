@@ -223,8 +223,8 @@ For example, the pointer dereference and assignment
   x = *p
 \end{equation*}
 will result in $\vdash T(p).\mathtt{load} <\colon T(x)$, means $p$ is a readable pointer, and
-the type of the dereferenced value is a subtype of type of $x$. That allows to fully represents
-constraints on inner structure of $p$ (if exists)
+the type of the dereferenced value is a subtype of type of $x$. The labels on $p$ allows to
+represent constraints on inner structure of $p$ (if exists) and $p$ itself.
 
 \subsection{Existing tools}
 
