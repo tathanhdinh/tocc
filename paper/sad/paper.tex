@@ -18,6 +18,25 @@
   pdfauthor = "Ta Thanh Dinh"
 }
 \usepackage{tikz-cd}
+\usepackage{listings}
+\lstset{
+  basicstyle=\small\ttfamily,
+  showspaces=false,
+  frame=tb,
+  tabsize=2,
+  frame=single,
+  captionpos=b,
+}
+% \lstloadlanguages{C,C++,[x86masm]Assembler}
+% \lstloadlanguages{C}
+% \lstset{
+%   morekeywords={signed32}
+% }
+\lstdefinestyle{c}{
+  language=C,
+  morekeywords={signed32}
+}
+\usepackage{cleveref}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \usepackage[sorting=ynt,sortcites=true,backend=bibtex8,doi=false,maxnames=6,isbn=false,firstinits=true]{biblatex}
@@ -69,7 +88,7 @@ data and control obfuscation)... just name a few. Basically, each obfuscation me
 several \emph{semantics-preserving} transformations~\cite{collberg_surreptitious_2009,dalla_preda_semantic-based_2005}
 which hide certain properties of the code.
 
-\subsubsection*{Context}
+\subsubsection*{Context and problem}
 An optional feature of binary code decompilation is \emph{type reconstruction}, namely to recover high-level types from machine-dependent
 objects~\cite{mycroft_type-based_1999, van_emmerik_static_2007}. This is the research objective of some
 research papers~\cite{lee_tie_2011,elwazeer_scalable_2013,robbins_minx_2016,noonan_polymorphic_2016},
@@ -81,7 +100,7 @@ raising~\cite{yadavalli_raising_2019,goodman_lifting_2018},
 see for example~\cite{caballero_type_2016} for a more completed list. Thus the knowledge about types
 expand the attack surface since more analysis can be applied on the programs.
 
-\subsubsection*{Problem and contribution}
+\subsubsection*{Contribution}
 Despite of successes in binary type reconstruction and the need of protecting function signatures, to the best
 of our knowledge there is no explicit effort in hiding type information. This paper presents a method
 for type obfuscation, the principal idea is based on the fact that the compiler does not need to preserve all information
@@ -134,7 +153,9 @@ always with concrete storage primitives (e.g. registers, memory), there are no e
 data structures, so are the techniques to recover them. Actually, types are compile-time constraints, they
 may or may not have runtime storage imprints. An example is C's \emph{type qualifier} (e.g.
 \texttt{const}, \texttt{restrict}), in general any
-\emph{refinement type} should not leave storage traces, the same thing with generics.
+\emph{refinement type} should not leave storage traces, the same thing with generics. More concretely, as
+we will presented in the section, the low-level polymorphism is a very specific problem that binary type
+recovery techniques have to deal with.
 Also, the survey lacks some important
 papers which are only published until later~\cite{noonan_polymorphic_2016,robbins_minx_2016}.
 
@@ -203,7 +224,7 @@ type patterns to recognize and propagate type/subtype relations.
 
 \subsection{Improvement}
 \noindent
-Lee et al.~\cite{lee_tie_2011} had the same idea of using type lattice for type preciseness,
+Lee et al. in TIE~\cite{lee_tie_2011} had the same idea of using type lattice for type preciseness,
 their deduction rules are more detail and support more cases
 (e.g. calls and dynamic jumps) but basically similar to Van Emmerik's. For example,
 the previously discussed assignment
@@ -225,10 +246,10 @@ can behaves as different types: zero is an integer, but it can be also a
 a pointer to the first field of this struct. All come from the low-level appearance of
 \emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
 
-Noonan et al.~\cite{noonan_polymorphic_2016} handled these problems by first
+Noonan et al. handled these problems in Retypd~\cite{noonan_polymorphic_2016} by first
 using subtyping in almost all derived constraints. The effect of data moving $x = y$ will be represented by
 $\vdash \tau_{y} <\colon \tau_{x}$. More importantly, they proposed a
-\emph{type capability} model: each object is attached with several labels representing it capabilities.
+\emph{type capability} model: each type variable is attached with several labels representing it capabilities.
 For example, the pointer dereference and assignment
 \begin{equation*}
   x = *p
@@ -252,8 +273,12 @@ most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and JEB~\cite{noauthor_jeb
 
 \section{Type obfuscation}
 \noindent
-Basically, our proposal for type obfuscation and bypassing binary type inference is based on the notion of
-\emph{type flattening} and the technique of corrupting the \emph{data-flow}, which are presented as follows.
+In this section, we present proposal for type flattening obfuscation and techniques used for that notion. We
+focus only on obfuscating scalar types (pointers, integers, but not floats), supporting aggregate types
+(e.g. struct, nested struct) is still the ongoing work.
+
+% Basically, our proposal for type obfuscation and bypassing binary type inference is based on the notion of
+% \emph{type flattening} and the technique of corrupting the \emph{data-flow}, which are presented as follows.
 
 \subsection{Type flattening}
 \noindent
@@ -278,15 +303,15 @@ of an object means making the type recovery algorithm infer the object's type as
 \end{definition}
 
 \subsubsection*{Uncertainty}
-Surprisingly, under some real world conditions, $\top$ type does not mean we do not know anything,
-we actually know some properties of $\top$. Recall that in our context, the binaries are disassemblable, function boundaries can be
+Unsurprisingly, under some real world conditions, $\top$ type does not mean we do not know anything,
+we actually know some properties. Recall that in our context, the binaries are disassemblable, function boundaries can be
 recognized correctly.
-Thus the binary, if it wants to be reusable, must respect the ABI (Application
+Thus the binary, as our goal is to make it reusable, must respect the ABI (Application
 Binary Interface). For example, AMD64 System V ABI specifies that the first parameter of
 a function is passed via \texttt{rdi} register, thus in the worst case of the binary type
 inference, the type of the first argument is $\mathtt{size64}$. The actual type may be
 $\mathtt{char*}$, $\mathtt{signed32}$, $\mathtt{unsigned16}$, etc. but it is always
-subtype of $\mathtt{size64}$. This is actually what have done by some binary raising
+subtype of $\mathtt{size64}$ (see~\cref{fig:newtop}). This is actually what are being performed by some binary raising
 projects~\cite{goodman_lifting_2018,yadavalli_raising_2019} and decompiler~\cite{durfina_detection_2012}.
 \begin{figure}[h]
   \centering
@@ -295,16 +320,76 @@ projects~\cite{goodman_lifting_2018,yadavalli_raising_2019} and decompiler~\cite
     \mathtt{char*} & \mathtt{signed32} & \mathtt{unsigned16}
   \end{tikzcd}
   \caption{$\top$ as $\mathtt{size64}$}
+  \label{fig:newtop}
 \end{figure}
 
-\subsection{Data-flow corruption}
+\subsubsection*{Goal}
+Our goal in type flattening obfuscation is to make any referred type become $\top$. In our specific
+context, under AMD SystemV ABI, it is $\mathtt{size64}$.
+
+\subsection{Hiding data-flow}
 \noindent
 Though quite different about type systems, constraint generation rules and constraint solvers;
 later type recovery techniques follow the \emph{data-flow based} approach proposed by Van Emmerik.
-Actually, most of implementation code in TIE~\cite{lee_tie_2011} is for the data-flow analysis
-and CFG building. Retypd~\cite{noonan_polymorphic_2016} is based on an external parametric
-abstract interpreter which do the data-flow analysis, this interpreter contributes greatly to the
-preciseness of type inference results.
+Actually, most of implementation code in TIE is for the data-flow analysis
+and CFG building. Retypd uses an external abstract interpreter
+which does the data-flow analysis, this interpreter contributes greatly to the
+preciseness of the type inference.
+%  results.
+
+A direct trick for type flattening is to hide the data-flow in the program, that is done by
+introducing \emph{spurious pointer aliases}~\cite{collberg_surreptitious_2009}. Let's look at the
+piece of code in~\cref{lst:directmov}, for illustration purpose we have used a pseudo-C syntax but only
+add type annotation on the variables whose types are supposed to be already known.
+\begin{lstlisting}[style={c},caption={Direct data movement},label={lst:directmov}]
+foo(signed32 x) {
+  p = &x;
+  y = *p;
+  return y;
+}
+\end{lstlisting}
+Any type recovery method can find the return type of \texttt{foo}. For example,
+with TIE: $\vdash p \colon \mathtt{ptr}(\mathtt{signed32})$ from the first assignment,
+then the second infers $\vdash y \colon \mathtt{signed32}$. Retypd gives a slightly
+different result $\vdash \mathtt{signed32} <\colon y$
+where $y <\colon \mathtt{size32}$, which is also more precise.
+
+In~\cref{lst:obfmov}, we hide the data-flow by adding a spurious alias $q$ for $p$.
+TIE would derive $\vdash y \colon \mathtt{size32}$, while Retypd is not better
+$\vdash \mathtt{size32} <\colon y$ where $\vdash y <\colon \mathtt{size32}$.
+\begin{lstlisting}[style={c},caption={Data movement with spurious alias},label={lst:obfmov}]
+foo(signed32 x) {
+  p = &x;
+  q = a spurious alias of p;
+  y = *q;
+  return y;
+}
+\end{lstlisting}
+
+\subsection{Hiding function signatures}
+\noindent
+We have seen that types of local variables can be hidden by corrupting the data-flow, but hiding
+types of function parameters require different tricks. For inter-procedural type analysis,
+the data-flow corruption still works because the type of passed arguments are already hidden: they
+are local variables of the calling function. But for intra-procedural type analysis, function
+parameters are one of type information sources; with the previous trick, we can still hide
+the sign property (signed, unsigned) or whether they are pointers or not, but we cannot hide their
+size (recall that our goal is to obtain $\top$ for all referred types).
+
+In binaries compiled by a normal compiler, the size of a function parameter can be detected
+by the size of the register used inside the function. For example, if the first argument is of type
+$\mathtt{int}$ (i.e. $\mathtt{signed32}$) then the register \texttt{edi} is used, not \texttt{rdi}.
+In our compiler \emph{uCc}, the function parameter size is hidden by following tricks.
+
+\subsubsection*{Signature rewriting}
+For each function,
+
+\subsubsection*{Inner trampoline}
+sdfsd
+
+\subsection{Other tricks}
+
+\subsection{Unused techniques}
 
 \section{Implementation and evaluation}
 
