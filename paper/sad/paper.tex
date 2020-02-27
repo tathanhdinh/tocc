@@ -2,7 +2,7 @@
 \IEEEoverridecommandlockouts
 % The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
 % \usepackage{cite}
-\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{amsmath,amssymb,amsfonts, amsthm}
 \usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{textcomp}
@@ -22,6 +22,8 @@
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \usepackage[sorting=ynt,sortcites=true,backend=bibtex8,doi=false,maxnames=6,isbn=false,firstinits=true]{biblatex}
 \addbibresource{reference}
+
+\newtheorem{definition}{Definition}
 
 \begin{document}
 
@@ -104,8 +106,8 @@ In summary, our contributions are as follows:
   property (types) of the program in contrast with classical methods which focus on lower
   properties as data or control flow.
 
-  \item We build a prototype compiler \emph{uCc} to realize the ideas of type
-  flattening obfuscation. \emph{uCc} also implements the permutation polynomials
+  \item We build a prototype compiler \emph{uCc} to realize the ideas of obfuscation.
+  \emph{uCc} also implements the permutation polynomials
   of MBA~\cite{zhou_information_2007} while other open source state-of-the-art obfuscators
   (e.g. Tigress~\cite{noauthor_tigress_nodate}) give only basic arithmetic encoding expressions.
   Other deobfuscation tools (e.g. Syntia~\cite{blazytko_syntia_2017}, QSynth~\cite{david_qsynth_2020})
@@ -119,8 +121,13 @@ In summary, our contributions are as follows:
 \section{Brief history of binary type inference}
 \noindent
 In statically typed languages, the compiler does not need preserve source code level type information in
-the generated machine code (type erasure), then type recovering requires special techniques. A broad survey for research
-up until 2015 can be referenced in~\cite{caballero_type_2016}, but it sustains a storage point of view bias: types are attached
+the generated machine code (type erasure), then type recovering requires special techniques. Before
+presenting the type obfuscation, we give a brief discussion about how current methods on binary type
+inference work, that gives some intuition about our bypassing technique.
+%  which will be presented in the next section.
+
+Though a broad survey for research
+up until 2015 can be referenced in~\cite{caballero_type_2016}, it sustains a storage point of view bias: types are attached
 always with concrete storage primitives (e.g. registers, memory), there are no essential differences between types and
 data structures, so the techniques to recover them. Actually, types are compile-time constraints, they
 may or may not have runtime storage imprints. An example is C's \emph{type qualifier} (e.g.
@@ -129,10 +136,12 @@ may or may not have runtime storage imprints. An example is C's \emph{type quali
 Also, the survey lacks some important
 papers which are only published until later~\cite{noonan_polymorphic_2016,robbins_minx_2016}.
 
-We quickly review some semantics-based approaches, recent research using machine learning~\cite{maier_typeminer_2019}
+We focus only on semantics-based approaches, recent research using machine learning~\cite{maier_typeminer_2019}
 or statistical language model~\cite{katz_estimating_2016} are out of scope of the paper.
-We omit also the phase of variable/function detection, which is an essential step before
-type recovering, more detail on this subject can be referenced in~\cite{balakrishnan_divine_2007}.
+We omit the phase of variable/function detection, which is an essential step before
+type recovering, more details on this subject can be referenced in~\cite{balakrishnan_divine_2007}.
+We avoid also difficulties in disassembling, the binaries are supposed to be perfectly disassemblable.
+
 From now on, unless otherwise stated, the target language is C, this is also the target language of almost all
 research papers and tools in the domain.
 
@@ -153,7 +162,7 @@ since adding two pointers does not type check.
 The method of Mycroft has several limits, as pointed out by Van Emmerik~\cite{van_emmerik_static_2007}.
 One of them comes from the fact that the low-level languages take care mostly on the value of
 the computation, then (the result of) an expression can be used in several ways and it behaves as
-different types (low-level polymorphic). Let's consider an assignment
+different types (low-level polymorphism). Let's consider an assignment
 \begin{equation*}
   p' = p + n
 \end{equation*}
@@ -199,8 +208,8 @@ the previously discussed assignment
 \begin{equation*}
   p' = p + n
 \end{equation*}
-will generate $\vdash \mathtt{ptr}(T_{\beta}) <\colon T(p')$ where $T_{\beta}$ is
-a type variable and $T(p')$ means type of $p'$, but $T_{\beta}$ is not free (never used outside
+will generate $\vdash \mathtt{ptr}(T_{\beta}) <\colon \tau_{p'}$ where $T_{\beta}$ is
+a type variable and $\tau_{p'}$ means type of $p'$, but $T_{\beta}$ is not free (never used outside
 the assignment) then this constraint is equivalent with $\vdash p' \colon \mathtt{void*}$. The notable
 improvement is the use of an IR named BIL (BAP Instruction Language), this makes the type analysis
 simpler and more coherent.
@@ -209,39 +218,66 @@ simpler and more coherent.
 The approaches discussed until now only consider basic cases of \emph{low-level polymorphism}, e.g.
 adding a pointer to an integer may result in a pointer of the same type or not, but there are more.
 For example, \texttt{mov} can freely move data between signed and unsigned values, or even a constant
-can behaves as different types: zero can be used as an integer type, but it can be used also as
+can behaves as different types: zero is an integer, but it can be also a
 \texttt{NULL} pointer. Another case is the indistinguishability between a pointer to a struct and
 a pointer to the first field of this struct. All come from the low-level appearance of
 \emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
 
-To handle these problems, Noonan et al.~\cite{noonan_polymorphic_2016} have used subtyping
-in all deduction rules. The effect of data moving $x = y$ will be represented by
-$\vdash T(y) <\colon T(x)$. More importantly, they proposed a
+Noonan et al.~\cite{noonan_polymorphic_2016} handled these problems by first
+using subtyping in almost all derived constraints. The effect of data moving $x = y$ will be represented by
+$\vdash \tau_{y} <\colon \tau_{x}$. More importantly, they proposed a
 \emph{type capability} model: each object is attached with several labels representing it capabilities.
 For example, the pointer dereference and assignment
 \begin{equation*}
   x = *p
 \end{equation*}
-will result in $\vdash T(p).\mathtt{load} <\colon T(x)$, means $p$ is a readable pointer, and
-the type of the dereferenced value is a subtype of type of $x$. The labels on $T(p)$ allows to
-represent constraints on inner structure of $p$ (if exists) and $p$ itself.
+will result in $\vdash \tau_{p}.\mathtt{load} <\colon \tau_{x}$, means $p$ is a readable pointer
+($\mathtt{.load}$ label), and
+the type of the dereferenced value is a subtype of type of $x$. The labels on $\tau_{p}$ allows to
+represent constraints on the inner structure of $p$ (if exists) and $p$ itself.
 
-The lattices is used for subtyping relations, and type analysis is proceeded on an IR,
+They used lattices for subtyping relations, and type analysis is proceeded on an IR,
 similar with Lee et al.
 
-\subsection{Existing tools}
-Only Van Emmerik gives an open source implementation of type recovery in his Boomerang decompiler.
-The research of Lee et al and Noonan et al. are implemented in their commercial products, which
-are not open. There are also other commercial tools whose the inner research is not published,
-most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and JEB~\cite{noauthor_jeb_nodate}. Only
-published recently, Ghidra~\cite{noauthor_ghidra_nodate} is an open-source decompiler which
-gives also type recovery, we still do not understand how it works.
+\subsection{Existing implementations}
+Only Van Emmerik gives an open-source implementation of type recovery in his Boomerang decompiler,
+Lee et al and Noonan et al. do not. Published recently, Ghidra~\cite{noauthor_ghidra_nodate} is an
+open-source decompiler which has type recovery, we do not know how it works yet.
+Other open-source decompilers, Snowman~\cite{noauthor_snowman_nodate} or
+RetDec~\cite{kroustek_retdec_2017}, do not seem focus much on this kind of analysis.
+There are also commercial tools whose methods are not published,
+most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and JEB~\cite{noauthor_jeb_nodate}.
 
-It may worth noting that some decompilers do not have the type recovery phase
+\section{Type obfuscation}
+\noindent
+The first common point of type recovery techniques is to use some \emph{subtype lattice}
+which represents also the preciseness of inferred types. In such a lattice, $\top$ means
+that we do not know anything about this type, or a variable of type $\top$ means it can
+be any type, whereas $\bot$ means that the variable violates some
+constraints in the proposed type system~\cite{lee_tie_2011}. Ideally, $\bot$ should not
+occur because in the worst case, the decompiler can simply simulate the type system
+of the low-level language, we consider only $\top$.
 
-\subsection{Data flow}
+\subsection{Type flattening}
+\noindent
+The idea of \emph{type flattening} is that we cannot distinguish the type of some
+high-level object (variables, function signatures) from $\top$, i.e. we do not know
+any information about the type of the object.
 
-\section{Type flattening}
+\begin{definition}
+  A high-level object is called type flattened up to a type inference algorithm
+  if its type is inferred as $\top$ in the subtype lattice of the algorithm.
+\end{definition}
+
+Recall that in our context, the binaries are disassemblable, function boundaries can be
+recognized correctly; then surprisingly, we can always know something about types. That
+is because of the binary, if it wants to be reusable, must respect the ABI (Application
+Binary Interface). For example, AMD64 System V ABI specifies that the first parameter of
+a function must be passed via \texttt{rdi}, thus in the worst case of the binary type
+inference, the type of the first argument is $\mathtt{size64}$. The actual type may be
+$\mathtt{char*}$, $\mathtt{signed32}$, $\mathtt{unsigned16}$, etc. but it is always
+subtype of $\mathtt{size64}$. This is actually what have done by some binary raising
+projects~\cite{yadavalli_raising_2019}.
 
 \section{Implementation and evaluation}
 
