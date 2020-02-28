@@ -8,12 +8,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cranelift = "0.58.0"
-cranelift-faerie = "0.58.0"
-cranelift-module = "0.58.0"
-cranelift-codegen = "0.58.0"
-cranelift-simplejit = "0.58.0"
-cranelift-preopt = "0.58.0"
+cranelift = "0.59.0"
+cranelift-faerie = "0.59.0"
+cranelift-module = "0.59.0"
+cranelift-codegen = "0.59.0"
+cranelift-simplejit = "0.59.0"
+cranelift-preopt = "0.59.0"
 zydis = "3.0.0"
 peg = "0.6.2"
 rand = "0.7.3"
