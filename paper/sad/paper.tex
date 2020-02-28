@@ -442,8 +442,8 @@ The most "obfuscated" part of \emph{uCc} is data-flow disrupting,
 thanks to results about invertible \emph{permutation polynomials}~\cite{zhou_information_2007}, the
 generation of pointer aliases become straightforward. Basically, we generate randomly an invertible
 polynomial $P$ over $\mathbb{Z}/2^n$ where $n$ is the machine word bit size ($n = 64$), and its
-inverse $Q = P^{-1}$ (see~\cref{fig:invertiblepolynomial} for an example). Then the aliases of
-some value $v$ is $Q(P(v))$, the calculation of $Q(P(v))$ is generated into the binary code.
+inverse $Q = P^{-1}$ (see~\cref{fig:invertiblepolynomial} for example), the aliases of
+some value $v$ is $Q(P(v))$. The calculation of $Q(P(v))$ is embedded into the binary code.
 
 \begin{figure}
   \begin{align*}
