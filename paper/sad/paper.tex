@@ -130,7 +130,7 @@ In summary, our contributions are as follows:
   properties as data or control flow.
 
   \item We implement an open source prototype compiler \emph{uCc} to realize the ideas of obfuscation.
-  We introduce in \emph{uCc} a method to generate pointer aliases which would be hard to reverse thanks
+  We introduce in \emph{uCc} a simple method to generate pointer aliases which would be hard to reverse thanks
   to MBA~\cite{zhou_information_2007}.
 
   \item We give also an implementation for the permutation polynomials
@@ -170,8 +170,8 @@ We omit the phase of variable/function detection, which is an essential step bef
 type recovering, more details on this subject can be referenced in~\cite{balakrishnan_divine_2007}.
 We avoid also difficulties in disassembling, the binaries are supposed to be perfectly disassemblable.
 
-From now on, unless otherwise stated, the target language is C, this is also the target language of almost all
-research papers and tools in the domain.
+From now on, unless otherwise stated, the target language is C, the type system is C's then.
+This is also the target almost all research papers and tools in the domain.
 
 \subsection{Initial work}
 \noindent
@@ -224,7 +224,7 @@ where $\vdash m \colon \mathtt{int}$, it then derives $\vdash p' \colon \mathtt{
 finally $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$ since
 $\mathtt{ptr}(\mathtt{int}) = \mathtt{ptr}(\mathtt{int}) \sqcap \mathtt{void*}$.
 
-The lack of an IR with well-defined semantics limits Van Emmerik's work, he had to use ad-hoc
+The lack of an IR with well-defined semantics limits Van Emmerik's work, he had to use heuristics as
 type patterns to recognize and propagate type/subtype relations.
 
 \subsection{Improvement}
@@ -276,17 +276,18 @@ most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and JEB~\cite{noauthor_jeb
 
 \section{Type obfuscation}
 \noindent
-In this section, we present our proposal for type flattening obfuscation and techniques used to obtain that notion. We
+In this section, we present our proposal for type flattening obfuscation and techniques used in
+our obfuscating compiler \emph{uCc} to obtain that notion. We
 focus only on obfuscating scalar types (pointers, integers, but not floats), supporting aggregate types
 (e.g. struct, nested struct) is still the ongoing work.
 
 % Basically, our proposal for type obfuscation and bypassing binary type inference is based on the notion of
 % \emph{type flattening} and the technique of corrupting the \emph{data-flow}, which are presented as follows.
 
-\subsection{Type flattening}
+\subsection{Notion}
 \noindent
-The type recovery approaches proposed several techniques to deal with the problem of low-level polymorphism,
-but a common point
+The type recovery approaches proposed different techniques to deal with the problem of
+low-level polymorphism, but a common point
 % of type recovery techniques
 is to use some \emph{subtype lattice}
 for the preciseness of inferred types. In the lattice, the bottom type $\bot$ means
@@ -331,7 +332,9 @@ projects~\cite{goodman_lifting_2018,yadavalli_raising_2019} and decompiler~\cite
 
 \subsubsection*{Goal}
 Our goal in type flattening obfuscation is to make any inferred type become $\top$. In our specific
-context, under AMD SystemV ABI, it is $\mathtt{size64}$.
+context, under AMD SystemV ABI, it is $\mathtt{size64}$. For that goal, \emph{uCc} combines two
+techniques: \emph{data-flow disrupting} and \emph{function signature masquerading}. The former
+bypasses the intra-procedural data analysis, the later tricks the inter-procedural one.
 
 \subsection{Data-flow disrupting}
 \noindent
@@ -360,8 +363,8 @@ then the second infers $\vdash y \colon \mathtt{signed32}$. Retypd gives a sligh
 different result $\vdash \mathtt{signed32} <\colon y$
 where $y <\colon \mathtt{size32}$, which is also more precise.
 
-In~\cref{lst:obfmov}, we insert an alias $q$ for $p$ to hide the data-flow.
-TIE derives $\vdash y \colon \mathtt{size32}$, while Retypd is not better
+In~\cref{lst:obfmov}, we insert an alias $q$ for $p$ to disrupt the data-flow.
+TIE derives $\vdash y \colon \mathtt{size32}$, Retypd is not better
 $\vdash \mathtt{size32} <\colon y$ where $\vdash y <\colon \mathtt{size32}$.
 \begin{lstlisting}[style={c},caption={Data movement with pointer alias},label={lst:obfmov}]
 foo(signed32 x) {
@@ -371,10 +374,17 @@ foo(signed32 x) {
   return y;
 }
 \end{lstlisting}
+In summary, before an use (which needs to be protected) of a
+variable, \emph{uCc} creates a stack slot to store it, next generates an alias for the stack slot,
+finally loads the variable from the alias.
 
-Our compiler \emph{uCc} disrupts the data-flow by: before an use (which needs to be protected) of a
-variable, \emph{uCc} creates a stack slot to store it, generates an alias for the stack slot,
-then loads the variable from the alias.
+\subsubsection*{Pointer alias generation}
+Thanks to results about invertible \emph{permutation polynomials}~\cite{zhou_information_2007}, the
+generation of pointer aliases become straightforward. Basically, for each case where a pointer needs to
+be aliased, \emph{uCc} generates randomly an invertible MBA
+polynomial $P$ over $\mathbb{Z}/2^n$ where $n$ is the machine word bit size ($n = 64$), and its
+inverse $Q = P^{-1}$ (see~\cref{fig:invertiblepolynomial} for an example of $P$ with degree 7 and its inverse $Q$), the aliases of
+some value $v$ is $Q(P(v))$. The calculation of $Q(P(v))$ is embedded into the generated binary code.
 
 \subsection{Function signature masquerading}
 \noindent
@@ -416,14 +426,19 @@ We can see also that the signature rewriting and inner trampoline profit the
 low-level polymorphism to wrap a type by its supertype, this is exactly an inverse process of binary type
 recovery which tries to unveil a type to get the underlying subtype.
 
+% \subsection{Type flattening effect}
+% \noindent
+% \emph{uCc} combines the two techniques presented above for the goal of type flattening: any inferred
+% type is $\mathtt{size64}$. The intra-procedural type analysis is bypassed by data-flow disrupting, while
+% function signature masquerading tricks the inter-procedural type analysis.
+
 \subsection{Other techniques}
 \noindent
 \emph{uCc} uses also some supplemental techniques to augment its resistance from type analysis algorithms
 and deobfuscation efforts in general.
 
 \subsubsection*{Split and merge}
-To bypass the type constraints generated from
-$\mathtt{load}$/$\mathtt{store}$ operations in TIE, as well as
+To bypass the type constraints generated from $\mathtt{load}$/$\mathtt{store}$ operations in TIE, as well as
 the derived types $\mathtt{.load}$/$\mathtt{.store}$ in Retypd. \emph{uCc}
 may split the loading of a value into several loads, each of them retrieves a part of the value, then merges these
 parts.
@@ -435,48 +450,48 @@ each run of \emph{uCC}. The number of split parts in a value loading is randomiz
 
 \section{Implementation}
 \noindent
-In implementing \emph{uCc}, beside the principal goal is type flattening obfuscation, we try to avoid any
-other obfuscation tricks that may bring unwanted effects on evaluating the obfuscation. Concretely,
-we want that the functions in binaries generated by \emph{uCc} would be perfectly detectable,
-disassemblable and decompilable (but with flattened types). For these goals, we have to skip almost all
-popular obfuscation techniques~\cite{banescu_tutorial_2018,collberg_surreptitious_2009}.
+The open source implementation in Rust of \emph{uCc} is given at~\cite{ta_ucc_nodate}. The frontend is
+implemented from scratch, the code generation part of the backend uses Cranelift~\cite{noauthor_cranelift_nodate}.
+Beside the final result is an obfuscated ELF object file, \emph{uCc} has also several options, for example
+JIT code generation, showing IR code, and selecting obfuscation level.
 
-\subsection{Pointer alias generation with MBA}
+\subsubsection*{Notes}
 \noindent
-The most "obfuscated" part of \emph{uCc} is data-flow disrupting.
-Thanks to results about invertible \emph{permutation polynomials}~\cite{zhou_information_2007}, the
-generation of pointer aliases become straightforward. Basically, for each case where a pointer needs to
-be hidden, we generate randomly an invertible
-polynomial $P$ over $\mathbb{Z}/2^n$ where $n$ is the machine word bit size ($n = 64$), and its
-inverse $Q = P^{-1}$ (see~\cref{fig:invertiblepolynomial} for example), the aliases of
-some value $v$ is $Q(P(v))$. The calculation of $Q(P(v))$ is embedded into the binary code.
+The principal goal of \emph{uCc} is type flattening obfuscation, but there is another requirement
+which is the capability of evaluating the single effect of type flattening. Concretely,
+we want that the functions in binaries generated by \emph{uCc} would be perfectly detectable,
+disassemblable and decompilable (but with flattened types). For these purposes, we try to avoid any
+other obfuscation tricks that may bring unwanted effects, almost all
+popular obfuscation techniques~\cite{banescu_tutorial_2018,collberg_surreptitious_2009} cannot be
+applied.
 
-562949953421312, -6992785447134243183, 9007199254740992, 1125899906842624, 8796093022208, 4611686018427387904, 35184372088832, -9223372036854775808,
+% \subsection{Pointer alias generation with MBA}
+% \noindent
+% The open source implementation in Rust of \emph{uCc} is given at~\cite{ta_ucc_nodate}. The frontend is
+% implemented from scratch, the code generation part of the backend
 
--6116451243922554880, 8805192775852862065, -5341269158061408256, -4540754324296302592, -6409053278306304000, -4611686018427387904, -1711965992726298624, -9223372036854775808
+% The most "obfuscated" part of \emph{uCc} is data-flow disrupting.
+% Thanks to results about invertible \emph{permutation polynomials}~\cite{zhou_information_2007}, the
+% generation of pointer aliases become straightforward. Basically, for each case where a pointer needs to
+% be aliased, \emph{uCc} generates randomly an invertible MBA
+% polynomial $P$ over $\mathbb{Z}/2^n$ where $n$ is the machine word bit size ($n = 64$), and its
+% inverse $Q = P^{-1}$ (see~\cref{fig:invertiblepolynomial} for an example of $P$ with degree 7 and its inverse $Q$), the aliases of
+% some value $v$ is $Q(P(v))$. The calculation of $Q(P(v))$ is embedded into the generated binary code.
 
-\begin{figure}
+% 562949953421312, -6992785447134243183, 9007199254740992, 1125899906842624, 8796093022208, 4611686018427387904, 35184372088832, -9223372036854775808,
+
+% -6116451243922554880, 8805192775852862065, -5341269158061408256, -4540754324296302592, -6409053278306304000, -4611686018427387904, -1711965992726298624, -9223372036854775808
+
+\begin{figure*}[ht]
   \begin{align*}
-    P(x) &= 562949953421312, \\
-         & -6992785447134243183, \times x \\
-         &+  9007199254740992, \times x^2 \\
-         &+ 1125899906842624,, \times x^3 \\
-         &+ 8796093022208, \times x^4 \\
-         &+ 4611686018427387904, \times x^5 \\
-         &+ 35184372088832 \times x^6, \\
-         &- 9223372036854775808, \times x^7 \\
-    Q(x) &= -6116451243922554880, \\
-         &+ 8805192775852862065, \times x \\
-         &- 5341269158061408256 \times x^2 \\
-         &- 4540754324296302592 \times x^3 \\
-         &- 6409053278306304000 \times x^4 \\
-         &- 4611686018427387904 \times x^5 \\
-         &- 1711965992726298624 \times x^6 \\
-         &- 9223372036854775808 \times x^7 \\
+    P(x) &= 562949953421312 - 6992785447134243183 \times x +  9007199254740992 \times x^2 + 1125899906842624 \times x^3 \\
+         &+ 8796093022208 \times x^4 + 4611686018427387904 \times x^5 + 35184372088832 \times x^6 - 9223372036854775808 \times x^7 \\
+    Q(x) &= -6116451243922554880 + 8805192775852862065 \times x - 5341269158061408256 \times x^2 - 4540754324296302592 \times x^3 \\
+         &- 6409053278306304000 \times x^4 - 4611686018427387904 \times x^5 - 1711965992726298624 \times x^6 - 9223372036854775808 \times x^7 \\
   \end{align*}
-  \caption{An invertible polynomial and its inverse}
+  \caption{An invertible polynomial and its inverse generated by \emph{uCc}}
   \label{fig:invertiblepolynomial}
-\end{figure}
+\end{figure*}
 
 % \begin{align*}
 %   P(x) &= 576460752303423488 + 8860833797731488269x + 137438953472x^2, \\
@@ -487,9 +502,11 @@ some value $v$ is $Q(P(v))$. The calculation of $Q(P(v))$ is embedded into the b
 
 % \end{equation*}
 
-
-
 \section{Evaluation}
+\noindent
+We test outputs of \emph{uCc} against some decompilers, \Cref{description} describes briefly
+tested functions and their signatures in source codes, \Cref{flattening} shows results of
+decompilers on binaries generated by \emph{uCc}.
 
 \begin{table*}
 	\begin{center}
@@ -617,9 +634,24 @@ some value $v$ is $Q(P(v))$. The calculation of $Q(P(v))$ is embedded into the b
 % \end{table*}
 
 \section{Related work}
-%  as in the previous approach.
+\noindent
+there is still no explicit effort in obfuscating
+high-level types. There would be several reasons for this lack of effort.
+
+\emph{First}, type obfuscation is unsurprisingly a side effect of data or control flow obfuscation.
+Indeed, type reconstruction algorithms need data and control flow to build type constraints,
+if any of them is hidden
+then the algorithms cannot work correctly. Or if the function boundary is not found
+(because of anti-disassembly tricks, for example), then high-level objects cannot be recognized.
+\emph{Second}, high-level types seem too coarse to be worthy
+of being protected, in many cases just knowing certain values of the input which make the program
+exploitable is enough. But knowledge about types expands attack surfaces because more analysis
+can be proceeded, beside decompilation see the survey~\cite{caballero_type_2016} for a
+more complete list.
 
 \section*{Acknowledgment}
+\noindent
+Thanks to my wife.
 
 % but type analysis is proceeded on IR named BIL (BAP Instruction Language).
 
