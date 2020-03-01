@@ -34,11 +34,11 @@ struct Opt {
 	#[options(help = "output object file", meta = "output", no_long)]
 	out: Option<String>,
 
-	#[options(help = "lightweight obfuscation", no_long)]
+	#[options(help = "only type flattening, nothing more", no_long)]
 	light: bool,
 
 	#[options(
-		help = "heavyweight obfuscation",
+		help = "type flattening, call aliasing, etc.",
 		meta = "level",
 		short = "w",
 		no_long,

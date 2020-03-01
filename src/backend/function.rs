@@ -89,15 +89,27 @@ pub fn get_function_signature(
 	(return_ty, param_ty)
 }
 
+fn masquerade_function_signature(
+	return_ty: Option<Type>, param_ty: &'_ [Type], topty: Type,
+) -> Signature {
+	Signature {
+		params: param_ty.iter().map(|_| AbiParam::new(topty)).collect(),
+		returns: if return_ty.is_some() { vec![AbiParam::new(topty)] } else { vec![] },
+		call_conv: isa::CallConv::SystemV,
+	}
+}
+
 pub fn blur_function_signature(
 	return_ty: Option<Type>, param_ty: &'_ [Type], pointer_ty: Type, ctxt: &'_ mut Context,
 ) {
-	if return_ty.is_some() {
-		ctxt.func.signature.returns.push(AbiParam::new(pointer_ty));
-	}
-	for _ in param_ty {
-		ctxt.func.signature.params.push(AbiParam::new(pointer_ty));
-	}
+	let sig = masquerade_function_signature(return_ty, param_ty, pointer_ty);
+	ctxt.func.signature = sig;
+	// if return_ty.is_some() {
+	// 	ctxt.func.signature.returns.push(AbiParam::new(pointer_ty));
+	// }
+	// for _ in param_ty {
+	// 	ctxt.func.signature.params.push(AbiParam::new(pointer_ty));
+	// }
 }
 
 fn blur_bor(fb: &'_ mut FunctionBuilder, x: Value, y: Value) -> Value {
@@ -551,6 +563,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.blur_value(val)
 	}
 
+	// requirement: no obfuscation applied
 	fn translate_declaration(
 		&'_ mut self, Declaration { specifier, declarator }: &'_ Declaration<'tcx>,
 	) {
@@ -663,6 +676,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
+	// requirement: no obfuscation applied
 	fn translate_do_while_statement(
 		&'_ mut self, DoWhileStatement { statement, condition }: &'_ DoWhileStatement<'tcx>,
 		_current_block: Block,
@@ -692,6 +706,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		Some(exit_block)
 	}
 
+	// requirement: no obfuscation applied
 	fn translate_while_statement(
 		&'_ mut self, WhileStatement { condition, statement }: &'_ WhileStatement<'tcx>,
 		_current_block: Block,
@@ -729,6 +744,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		Some(exit_block)
 	}
 
+	// requirement: no obfuscation applied
 	fn translate_compound_statements(
 		&'_ mut self, stmts: &'_ [Statement<'tcx>], current_block: Block,
 	) -> Option<Block> {
@@ -750,6 +766,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		block
 	}
 
+	// requirement: no obfuscation applied
 	fn translate_for_statement(
 		&'_ mut self,
 		ForStatement { initializer, condition, step, statement }: &'_ ForStatement<'tcx>,
@@ -794,6 +811,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		Some(exit_block)
 	}
 
+	// requirement: no obfuscation applied
 	fn translate_if_statement(
 		&'_ mut self,
 		IfStatement { condition, then_statement, else_statement }: &'_ IfStatement<'tcx>,
@@ -840,6 +858,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		Some(merge_block)
 	}
 
+	// requirement: no obfuscation applied
 	fn translate_statement(
 		&'_ mut self, stmt: &'_ Statement<'tcx>, current_block: Block,
 	) -> Option<Block> {
@@ -893,6 +912,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
+	// requirement: no obfuscation applied in light mode
 	fn translate_unary_operator_expression(
 		&'_ mut self,
 		UnaryOperatorExpression { operator, operand }: &'_ UnaryOperatorExpression<'tcx>,
@@ -1076,6 +1096,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
+	// requirement: no obfuscation applied in light mode
 	fn translate_binary_operator_expression(
 		&'_ mut self,
 		BinaryOperatorExpression { operator, lhs, rhs }: &'_ BinaryOperatorExpression<'tcx>,
@@ -1206,16 +1227,16 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				SimpleTypedConcreteValue { val: ConstantTy(rhs_val), .. },
 			) => {
 				let val = match operator {
-					Multiplication => ValueTy(self.blur_imul_imm(lhs_val, rhs_val)),
+					Multiplication => ValueTy(self.imul_imm(lhs_val, rhs_val)),
 					Division => ValueTy(self.idiv_imm(lhs_val, rhs_val)),
 					Remainder => ValueTy(self.srem_imm(lhs_val, rhs_val)),
 
 					Addition => match &lhs_ty {
-						PrimitiveTy(_) => ValueTy(self.blur_iadd_imm(lhs_val, rhs_val)),
+						PrimitiveTy(_) => ValueTy(self.iadd_imm(lhs_val, rhs_val)),
 
 						PointerTy(pty) => match pty.as_ref() {
 							PrimitiveTy(ty) => {
-								ValueTy(self.blur_iadd_imm(lhs_val, rhs_val * ty.bytes() as i64))
+								ValueTy(self.iadd_imm(lhs_val, rhs_val * ty.bytes() as i64))
 							}
 
 							_ => todo!(),
@@ -1288,7 +1309,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 												self.isub(lhs_val, self.iconst(lhs_ty, rhs_val))
 											}
 											MultiplicationAssignment => {
-												self.blur_imul_imm(lhs_val, rhs_val)
+												self.imul_imm(lhs_val, rhs_val)
 											}
 											DivisionAssignment => self.idiv_imm(lhs_val, rhs_val),
 											_ => semantically_unreachable!(),
@@ -1302,7 +1323,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 									}) => {
 										let new_lhs_val = match operator {
 											AdditionAssignment => match pty.as_ref() {
-												PrimitiveTy(ty) => self.blur_iadd_imm(
+												PrimitiveTy(ty) => self.iadd_imm(
 													lhs_val,
 													rhs_val * ty.bytes() as i64,
 												),
@@ -1310,7 +1331,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											},
 
 											SubtractionAssignment => match pty.as_ref() {
-												PrimitiveTy(ty) => self.blur_iadd_imm(
+												PrimitiveTy(ty) => self.iadd_imm(
 													lhs_val,
 													rhs_val * ty.bytes() as i64,
 												),
@@ -1417,21 +1438,21 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 					Addition => match (&lhs_ty, &rhs_ty) {
 						(PrimitiveTy(_), PrimitiveTy(_)) => {
-							ValueTy(self.blur_iadd(lhs_val, rhs_val))
+							ValueTy(self.iadd(lhs_val, rhs_val))
 						}
 
 						(PointerTy(pty), PrimitiveTy(_)) => match pty.as_ref() {
-							PrimitiveTy(ty) => ValueTy(self.blur_iadd(
+							PrimitiveTy(ty) => ValueTy(self.iadd(
 								lhs_val,
-								self.blur_imul_imm(rhs_val, ty.bytes() as i64),
+								self.imul_imm(rhs_val, ty.bytes() as i64),
 							)),
 							_ => todo!(),
 						},
 
 						(PrimitiveTy(_), PointerTy(pty)) => match pty.as_ref() {
-							PrimitiveTy(ty) => ValueTy(self.blur_iadd(
+							PrimitiveTy(ty) => ValueTy(self.iadd(
 								rhs_val,
-								self.blur_imul_imm(lhs_val, ty.bytes() as i64),
+								self.imul_imm(lhs_val, ty.bytes() as i64),
 							)),
 							_ => todo!(),
 						},
@@ -1444,7 +1465,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 						(PointerTy(pty), PrimitiveTy(_)) => match pty.as_ref() {
 							PrimitiveTy(ty) => ValueTy(
-								self.isub(lhs_val, self.blur_imul_imm(rhs_val, ty.bytes() as i64)),
+								self.isub(lhs_val, self.imul_imm(rhs_val, ty.bytes() as i64)),
 							),
 							_ => todo!(),
 						},
@@ -1484,10 +1505,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 									}) => {
 										let new_lhs_val = match operator {
 											Assignment => self.cast_value(*ty, rhs_val),
-											AdditionAssignment => self.blur_iadd(lhs_val, rhs_val),
+											AdditionAssignment => self.iadd(lhs_val, rhs_val),
 											SubtractionAssignment => self.isub(lhs_val, rhs_val),
 											MultiplicationAssignment => {
-												self.blur_imul(lhs_val, rhs_val)
+												self.imul(lhs_val, rhs_val)
 											}
 											DivisionAssignment => self.idiv(lhs_val, rhs_val),
 											_ => semantically_unreachable!(),
@@ -1509,7 +1530,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											}
 
 											AdditionAssignment => match lhs_pty.as_ref() {
-												PrimitiveTy(lhs_pty) => self.blur_iadd(
+												PrimitiveTy(lhs_pty) => self.iadd(
 													lhs_val,
 													self.blur_imul_imm(
 														rhs_val,
@@ -1689,6 +1710,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
+	// obfuscation:
 	fn translate_call_expression(
 		&'_ mut self,
 		CallExpression { callee: Identifier(func_name), arguments }: &'_ CallExpression<'tcx>,
@@ -1703,19 +1725,17 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				ty: FunctionTy(FunctionType { return_ty, param_ty }),
 				ident,
 			}) => {
-				let sig = Signature {
-					params: param_ty.iter().map(|_| AbiParam::new(self.pointer_ty)).collect(),
-					returns: if return_ty.is_some() {
-						vec![AbiParam::new(self.pointer_ty)]
-					} else {
-						vec![]
-					},
-					call_conv: isa::CallConv::SystemV,
-				};
+				// let sig = Signature {
+				// 	params: param_ty.iter().map(|_| AbiParam::new(self.pointer_ty)).collect(),
+				// 	returns: if return_ty.is_some() {
+				// 		vec![AbiParam::new(self.pointer_ty)]
+				// 	} else {
+				// 		vec![]
+				// 	},
+				// 	call_conv: isa::CallConv::SystemV,
+				// };
+				let sig = masquerade_function_signature(return_ty, &param_ty, self.pointer_ty);
 				let sig_ref = self.import_signature(&sig);
-
-				let local_callee = self.func_ref(ident);
-				let callee_addr = self.blur_value(self.func_addr(local_callee));
 
 				let arg_values: Vec<_> = arguments
 					.iter()
@@ -1733,7 +1753,13 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					})
 					.collect();
 
-				let call = self.insert_indirect_call(sig_ref, callee_addr, &arg_values);
+				let local_callee = self.func_ref(ident);
+				let call = if light() {
+					self.insert_call(local_callee, &arg_values)
+				} else {
+					let callee_addr = self.blur_value(self.func_addr(local_callee));
+					self.insert_indirect_call(sig_ref, callee_addr, &arg_values)
+				};
 
 				let ret_val = if let Some(ty) = return_ty {
 					let ret_val = self.inst_result(call);
@@ -1773,6 +1799,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
+	// requirement: no direct obfuscation applied
 	fn translate_expression(
 		&'_ mut self, expr: &'_ Expression<'tcx>,
 	) -> SimpleTypedConcreteValue<'tcx> {
@@ -1795,6 +1822,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			}
 		}
 	}
+
+	/* cranelift operations */
 
 	fn cast_value(&'_ self, ty: Type, val: Value) -> Value {
 		let val_size = self.value_type(val).bytes();
@@ -1903,7 +1932,15 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 	fn iadd(&'_ self, x: Value, y: Value) -> Value {
 		let (x, y) = self.normalize(x, y);
-		self.func_builder.borrow_mut().ins().iadd(x, y)
+		if light() {
+			self.func_builder.borrow_mut().ins().iadd(x, y)
+		} else {
+			let x_or_y = self.bor(x, y);
+			let x_and_y = self.band(x, y);
+			self.func_builder.borrow_mut().ins().iadd(x_or_y, x_and_y)
+		}
+		// let (x, y) = self.normalize(x, y);
+		// self.func_builder.borrow_mut().ins().iadd(x, y)
 	}
 
 	fn blur_iadd(&'_ self, x: Value, y: Value) -> Value {
@@ -1912,7 +1949,15 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	}
 
 	fn iadd_imm(&'_ self, x: Value, n: impl Into<i64>) -> Value {
-		self.func_builder.borrow_mut().ins().iadd_imm(x, n.into())
+		let n: i64 = n.into();
+		if light() {
+			self.func_builder.borrow_mut().ins().iadd_imm(x, n)
+		} else {
+			let x_or_n = self.bor_imm(x, n);
+			let x_and_n = self.band_imm(x, n);
+			self.func_builder.borrow_mut().ins().iadd(x_or_n, x_and_n)
+		}
+		// self.func_builder.borrow_mut().ins().iadd_imm(x, n.into())
 	}
 
 	fn blur_iadd_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value {
@@ -1953,7 +1998,23 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	}
 
 	fn imul(&'_ self, x: Value, y: Value) -> Value {
-		self.func_builder.borrow_mut().ins().imul(x, y)
+		// self.func_builder.borrow_mut().ins().imul(x, y)
+		if light() {
+			self.func_builder.borrow_mut().ins().imul(x, y)
+		} else {
+			// self.func_builder.borrow_mut().ins().imul(x, y)
+			// let lhs = self.imul(self.bor(x, y), self.band(x, y));
+			// let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
+			// self.blur_iadd(lhs, rhs)
+			let x_or_y = self.bor(x, y);
+			let x_and_y = self.band(x, y);
+			let lhs = self.func_builder.borrow_mut().ins().imul(x_or_y, x_and_y);
+			let x_and_not_y = self.band_not(x, y);
+			let not_x_and_y = self.band_not(y, x);
+			let rhs = self.func_builder.borrow_mut().ins().imul(x_and_not_y, not_x_and_y);
+			self.iadd(lhs, rhs)
+			// self.blur_iadd(lhs, rhs)
+		}
 	}
 
 	fn blur_imul(&'_ self, x: Value, y: Value) -> Value {
@@ -1967,9 +2028,19 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	}
 
 	fn imul_imm(&'_ self, x: Value, n: impl Into<i64>) -> Value {
-		self.func_builder.borrow_mut().ins().imul_imm(x, n.into())
+		let n: i64 = n.into();
+		if light() {
+			self.func_builder.borrow_mut().ins().imul_imm(x, n)
+		} else {
+			let lhs = self.imul(self.bor_imm(x, n), self.band_imm(x, n));
+			let n = self.iconst(self.value_type(x), n);
+			let rhs = self.imul(self.band_not(x, n), self.band_not(n, x));
+			self.iadd(lhs, rhs)
+		}
+		// self.func_builder.borrow_mut().ins().imul_imm(x, n.into())
 	}
 
+	// Eyrolles p.57
 	fn blur_imul_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value {
 		if light() {
 			self.imul_imm(x, y)

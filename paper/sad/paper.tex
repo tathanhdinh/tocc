@@ -81,14 +81,13 @@ particular but not independent~\cite{schwarz_disassembly_2002} analysis techniqu
 one can affect another. The analyzed program is
 transformed gradually into a higher-level, more abstract and more understandable representation.
 
-In the opposite direction, binary code \emph{obfuscation} is a method to protect the low-level code from
-being decompiled, or from being analyzed in general. Because the code analysis contains of different
-interdependent phases, the obfuscation~\cite{banescu_tutorial_2018,collberg_surreptitious_2009}
-can proceed at any of them, e.g. anti-disassembly
+On the contrary, binary code \emph{obfuscation} protects the machine code from
+being decompiled, or from being analyzed in general. Because the analysis contains of different
+interdependent phases, the obfuscation may attack any of them, e.g. anti-disassembly
 (binary packer, self-modifying code), binary stripping, control-flow flattening, virtualization (for both
 data and control obfuscation)... just name a few. Basically, each obfuscation method consists of one or
 several \emph{potent transformations}~\cite{collberg_surreptitious_2009,dalla_preda_semantic-based_2005}
-which hide certain properties of the code.
+that hide certain properties of the code.
 
 \subsubsection*{Context and problem}
 An optional feature of binary code decompilation is \emph{type reconstruction}, namely to recover high-level types from machine-dependent
@@ -130,8 +129,8 @@ In summary, our contributions are as follows:
   properties as data or control flow.
 
   \item We implement an open source prototype compiler \emph{uCc} to realize the ideas of obfuscation.
-  We introduce in \emph{uCc} a simple method to generate pointer aliases which would be hard to reverse thanks
-  to MBA~\cite{zhou_information_2007}.
+  We introduce in \emph{uCc} a simple method to generate pointer aliases which would be hard to reverse
+  thanks to the resilience of MBA obfuscation~\cite{eyrolles_defeating_2016,biondi_effectiveness_2017}.
 
   \item We give also an implementation for the permutation polynomials
   of MBA while other open source state-of-the-art obfuscators
@@ -375,16 +374,18 @@ foo(signed32 x) {
 }
 \end{lstlisting}
 In summary, before an use (which needs to be protected) of a
-variable, \emph{uCc} creates a stack slot to store it, next generates an alias for the stack slot,
-finally loads the variable from the alias.
+variable, \emph{uCc} \raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {1}}} creates a stack slot to store the variable,
+\raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {2}}} generates an alias for the stack slot,
+\raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {3}}} loads the variable from the alias.
 
 \subsubsection*{Pointer alias generation}
 Thanks to results about invertible \emph{permutation polynomials}~\cite{zhou_information_2007}, the
 generation of pointer aliases become straightforward. Basically, for each case where a pointer needs to
-be aliased, \emph{uCc} generates randomly an invertible MBA
-polynomial $P$ over $\mathbb{Z}/2^n$ where $n$ is the machine word bit size ($n = 64$), and its
-inverse $Q = P^{-1}$ (see~\cref{fig:invertiblepolynomial} for an example of $P$ with degree 7 and its inverse $Q$), the aliases of
-some value $v$ is $Q(P(v))$. The calculation of $Q(P(v))$ is embedded into the generated binary code.
+be aliased, \emph{uCc} generates randomly an invertible polynomial MBA expression $P$ over
+$\mathbb{Z}/2^n$ where $n$ is the machine word bit size ($n = 64$), and its inverse $Q = P^{-1}$
+(see~\cref{fig:invertiblepolynomial} for an example of $P$ with degree 7 and its inverse $Q$),
+the aliases of some value $v$ is $Q(P(v))$. The calculation of $Q(P(v))$ is embedded into the generated
+binary code.
 
 \subsection{Function signature masquerading}
 \noindent
@@ -432,16 +433,29 @@ recovery which tries to unveil a type to get the underlying subtype.
 % type is $\mathtt{size64}$. The intra-procedural type analysis is bypassed by data-flow disrupting, while
 % function signature masquerading tricks the inter-procedural type analysis.
 
-\subsection{Other techniques}
+\subsection{Other obfuscation tricks}
 \noindent
-\emph{uCc} uses also some supplemental techniques to augment its resistance from type analysis algorithms
-and deobfuscation efforts in general.
+\emph{uCc} implements also some supplemental techniques to augment its resilience from type analysis algorithms
+and general deobfuscation efforts.
 
 \subsubsection*{Split and merge}
 To bypass the type constraints generated from $\mathtt{load}$/$\mathtt{store}$ operations in TIE, as well as
 the derived types $\mathtt{.load}$/$\mathtt{.store}$ in Retypd. \emph{uCc}
 may split the loading of a value into several loads, each of them retrieves a part of the value, then merges these
-parts.
+parts. This is a basic but useful obfuscation trick.
+
+\subsubsection*{MBA rewriting}
+\emph{uCc} uses some MBA rewriting rules to obfuscate basic arithmetic operations, $\mathtt{add}$,
+$\mathtt{and}$, $\mathtt{or}$, $\mathtt{xor}$. The rules are taken from~\cite{eyrolles_obfuscation_2017}.
+\begin{figure}[hb]
+  \begin{align*}
+    x + y &\rightarrow (x \wedge y) + (x \vee y) \\
+    x \vee y &\rightarrow (x + y) - (x \wedge y) \\
+    x \times y &\rightarrow (x \wedge y) \times (x \vee y) + (x \wedge \bar{y}) \times (\bar{x} \wedge y)
+  \end{align*}
+  \caption{Some rewriting rules used in \emph{uCc}}
+\end{figure}
+
 
 \subsubsection*{Code diversity}
 \emph{uCc} is a \emph{probabilistic compiler}, the generation of pointer aliases is not the same over generated
@@ -458,12 +472,14 @@ JIT code generation, showing IR code, and selecting obfuscation level.
 \subsubsection*{Notes}
 \noindent
 The principal goal of \emph{uCc} is type flattening obfuscation, but there is another requirement
-which is the capability of evaluating the single effect of type flattening. Concretely,
+that is the capability of evaluating the single effect of type flattening. Concretely,
 we want that the functions in binaries generated by \emph{uCc} would be perfectly detectable,
 disassemblable and decompilable (but with flattened types). For these purposes, we try to avoid any
-other obfuscation tricks that may bring unwanted effects, almost all
-popular obfuscation techniques~\cite{banescu_tutorial_2018,collberg_surreptitious_2009} cannot be
-applied.
+other obfuscation tricks that may bring unwanted effects. Many
+popular obfuscation techniques~\cite{banescu_tutorial_2018,collberg_surreptitious_2009}
+(control-flow flattening, dead-code insertion, virtualization, code packing, self-modifying code, etc)
+cannot be applied because they either protect the binaries from disassembling, or prevent the detection of
+functions in the binary, as well as obfuscating the function control-flow graph.
 
 % \subsection{Pointer alias generation with MBA}
 % \noindent
