@@ -139,15 +139,17 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 	#[rustfmt::skip]
 	macro_rules! id {
 		($ty:ty, $pv:expr, $tyv:expr, $olevel:expr) => {
-			if $olevel == 0 {
-				let (a0, b0, a1, b1) = generate_linear_maps!($ty);
-				let pv = ins!().imul_imm($pv, a0 as i64);
-				let pv = ins!().iadd_imm(pv, b0 as i64);
-				let pv = ins!().imul_imm(pv, a1 as i64);
-				let pv = ins!().iadd_imm(pv, b1 as i64);
-				pv
-			} else {
+			// if $olevel == 0 {
+			// 	let (a0, b0, a1, b1) = generate_linear_maps!($ty);
+			// 	let pv = ins!().imul_imm($pv, a0 as i64);
+			// 	let pv = ins!().iadd_imm(pv, b0 as i64);
+			// 	let pv = ins!().imul_imm(pv, a1 as i64);
+			// 	let pv = ins!().iadd_imm(pv, b1 as i64);
+			// 	pv
+			// } else
+			{
 				let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
+				// let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, 1);
 				let x = $pv;
 				let mut px = ins!().iconst($tyv, coeffs[0] as i64); // a0
 				for i in 1..=$olevel {
@@ -176,7 +178,8 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 	}
 
 	let mut acc_val = ins!().iconst(val_ty, 0);
-	let olevel = heavy();
+	// let olevel = heavy();
+	let olevel = 1;
 	for ty in random_type_partition {
 		let pv = ins!().ushr_imm(val, offset);
 		// let pv = ins!().ireduce(ty, pv);
@@ -194,12 +197,13 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 		};
 
 		let pv = if ty.bytes() < fb.func.dfg.value_type(val).bytes() {
-			fb.ins().uextend(val_ty, pv)
+			ins!().uextend(val_ty, pv)
 		} else {
 			pv
 		};
-		let pv = fb.ins().ishl_imm(pv, offset);
-		acc_val = blur_bor(fb, acc_val, pv);
+		let pv = ins!().ishl_imm(pv, offset);
+		// acc_val = blur_bor(fb, acc_val, pv);
+		acc_val = ins!().bor(acc_val, pv);
 
 		offset += ty.bits() as i64
 	}
@@ -411,16 +415,17 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		#[rustfmt::skip]
 		macro_rules! id {
 			($ty:ty, $pv:expr, $tyv:expr, $olevel:expr) => {
-				if $olevel == 0 {
-					let (a0, b0, a1, b1) = generate_linear_maps!($ty);
-					self.iadd_imm(
-						self.imul_imm(
-							self.iadd_imm(self.imul_imm($pv, a0), b0),
-							a1,
-						),
-						b1,
-					)
-				} else {
+				// if $olevel == 0 {
+				// 	let (a0, b0, a1, b1) = generate_linear_maps!($ty);
+				// 	self.iadd_imm(
+				// 		self.imul_imm(
+				// 			self.iadd_imm(self.imul_imm($pv, a0), b0),
+				// 			a1,
+				// 		),
+				// 		b1,
+				// 	)
+				// } else
+				{
 					let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
 					let x = $pv;
 					let mut px = self.iconst($tyv, coeffs[0] as i64); // a0
@@ -474,7 +479,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			offset += ty.bits() as i32;
 		}
 
-		partitioned_values.into_iter().fold(self.iconst(val_ty, 0), |acc, v| self.blur_bor(acc, v))
+		partitioned_values.into_iter().fold(self.iconst(val_ty, 0), |acc, v| self.bor(acc, v))
 	}
 
 	fn blur_value(&'_ self, val: Value) -> Value {
@@ -485,16 +490,17 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		#[rustfmt::skip]
 		macro_rules! id {
 			($ty:ty, $pv:expr, $tyv:expr, $olevel:expr) => {
-				if $olevel == 0 {
-					let (a0, b0, a1, b1) = generate_linear_maps!($ty);
-					self.iadd_imm(
-						self.imul_imm(
-							self.iadd_imm(self.blur_imul_imm($pv, a0), b0),
-							a1,
-						),
-						b1,
-					)
-				} else {
+				// if $olevel == 0 {
+				// 	let (a0, b0, a1, b1) = generate_linear_maps!($ty);
+				// 	self.iadd_imm(
+				// 		self.imul_imm(
+				// 			self.iadd_imm(self.imul_imm($pv, a0), b0),
+				// 			a1,
+				// 		),
+				// 		b1,
+				// 	)
+				// } else
+				{
 					let (coeffs, inv_coeffs) = generate_polynomial_maps!($ty, $olevel);
 					let x = $pv;
 					let mut px = self.iconst($tyv, coeffs[0] as i64); // a0
@@ -553,15 +559,15 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.stack_load(val_ty, ss, 0)
 	}
 
-	fn blur_def_var(&'_ self, var: Variable, val: Value) {
-		let val = self.blur_value(val);
-		self.def_var(var, val)
-	}
+	// fn blur_def_var(&'_ self, var: Variable, val: Value) {
+	// 	let val = self.blur_value(val);
+	// 	self.def_var(var, val)
+	// }
 
-	fn blur_use_var(&'_ self, var: Variable) -> Value {
-		let val = self.use_var(var);
-		self.blur_value(val)
-	}
+	// fn blur_use_var(&'_ self, var: Variable) -> Value {
+	// 	let val = self.use_var(var);
+	// 	self.blur_value(val)
+	// }
 
 	// requirement: no obfuscation applied
 	fn translate_declaration(
@@ -1314,7 +1320,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											DivisionAssignment => self.idiv_imm(lhs_val, rhs_val),
 											_ => semantically_unreachable!(),
 										};
-										self.blur_def_var(*ident, new_lhs_val);
+										self.def_var(*ident, new_lhs_val);
 									}
 
 									PointerIdent(PointerIdentifer {
@@ -1340,7 +1346,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 											_ => semantically_unreachable!(),
 										};
-										self.blur_def_var(*ident, new_lhs_val);
+										self.def_var(*ident, new_lhs_val);
 									}
 
 									_ => semantically_unreachable!(),
@@ -1429,8 +1435,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				SimpleTypedConcreteValue { val: ValueTy(lhs_val), ty: lhs_ty },
 				SimpleTypedConcreteValue { val: ValueTy(rhs_val), ty: rhs_ty },
 			) => {
-				let lhs_val = self.blur_value(lhs_val);
-				let rhs_val = self.blur_value(rhs_val);
+				// let lhs_val = self.blur_value(lhs_val);
+				// let rhs_val = self.blur_value(rhs_val);
 				let val = match operator {
 					Multiplication => ValueTy(self.imul(lhs_val, rhs_val)),
 					Division => ValueTy(self.idiv(lhs_val, rhs_val)),
@@ -1513,7 +1519,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											DivisionAssignment => self.idiv(lhs_val, rhs_val),
 											_ => semantically_unreachable!(),
 										};
-										self.blur_def_var(*lhs_ident, new_lhs_val);
+										self.def_var(*lhs_ident, new_lhs_val);
 									}
 
 									PointerIdent(PointerIdentifer {
@@ -1532,7 +1538,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											AdditionAssignment => match lhs_pty.as_ref() {
 												PrimitiveTy(lhs_pty) => self.iadd(
 													lhs_val,
-													self.blur_imul_imm(
+													self.imul_imm(
 														rhs_val,
 														lhs_pty.bytes() as i64,
 													),
@@ -1543,7 +1549,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											SubtractionAssignment => match lhs_pty.as_ref() {
 												PrimitiveTy(lhs_pty) => self.isub(
 													lhs_val,
-													self.blur_imul_imm(
+													self.imul_imm(
 														rhs_val,
 														lhs_pty.bytes() as i64,
 													),
@@ -1553,7 +1559,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 											_ => semantically_unreachable!(),
 										};
-										self.blur_def_var(*lhs_ident, new_lhs_val);
+										self.def_var(*lhs_ident, new_lhs_val);
 									}
 
 									_ => todo!(),
@@ -1787,12 +1793,12 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		let var = self.name_env.get_unchecked(var_name);
 		match var {
 			PrimitiveIdent(PrimitiveIdentifier { ident, ty }) => SimpleTypedConcreteValue {
-				val: ConcreteValue::ValueTy(self.blur_use_var(*ident)),
+				val: ConcreteValue::ValueTy(self.use_var(*ident)),
 				ty: ty.clone(),
 			},
 
 			PointerIdent(PointerIdentifer { ident, ty }) => SimpleTypedConcreteValue {
-				val: ConcreteValue::ValueTy(self.blur_use_var(*ident)),
+				val: ConcreteValue::ValueTy(self.use_var(*ident)),
 				ty: ty.clone(),
 			},
 
@@ -1824,7 +1830,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
-	/* cranelift operations */
+	/* cranelift operations, low-level obfuscation */
 
 	fn cast_value(&'_ self, ty: Type, val: Value) -> Value {
 		let val_size = self.value_type(val).bytes();
@@ -1944,10 +1950,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		// self.func_builder.borrow_mut().ins().iadd(x, y)
 	}
 
-	fn blur_iadd(&'_ self, x: Value, y: Value) -> Value {
-		let (x, y) = self.normalize(x, y);
-		if light() { self.iadd(x, y) } else { self.iadd(self.bor(x, y), self.band(x, y)) }
-	}
+	// fn blur_iadd(&'_ self, x: Value, y: Value) -> Value {
+	// 	let (x, y) = self.normalize(x, y);
+	// 	if light() { self.iadd(x, y) } else { self.iadd(self.bor(x, y), self.band(x, y)) }
+	// }
 
 	fn iadd_imm(&'_ self, x: Value, n: impl Into<i64>) -> Value {
 		let n: i64 = n.into();
@@ -1961,24 +1967,29 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		// self.func_builder.borrow_mut().ins().iadd_imm(x, n.into())
 	}
 
-	fn blur_iadd_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value {
-		if light() {
-			self.iadd_imm(x, y)
-		} else {
-			self.blur_iadd(self.bor_imm(x, y), self.band_imm(x, y))
-		}
-	}
+	// fn blur_iadd_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value {
+	// 	if light() {
+	// 		self.iadd_imm(x, y)
+	// 	} else {
+	// 		self.blur_iadd(self.bor_imm(x, y), self.band_imm(x, y))
+	// 	}
+	// }
 
 	fn isub(&'_ self, x: Value, y: Value) -> Value {
-		let (x, y) = self.normalize(x, y);
-		self.func_builder.borrow_mut().ins().isub(x, y)
+		if light() {
+			let (x, y) = self.normalize(x, y);
+			self.func_builder.borrow_mut().ins().isub(x, y)
+		} else {
+			let y = self.ineg(y);
+			self.iadd(x, y)
+		}
+
 	}
 
-	#[allow(dead_code)]
-	fn blur_isub(&'_ self, x: Value, y: Value) -> Value {
-		let neg_y = self.ineg(y);
-		self.blur_iadd(x, neg_y)
-	}
+	// fn blur_isub(&'_ self, x: Value, y: Value) -> Value {
+	// 	let neg_y = self.ineg(y);
+	// 	self.blur_iadd(x, neg_y)
+	// }
 
 	fn idiv(&'_ self, x: Value, y: Value) -> Value {
 		let (x, y) = self.normalize(x, y);
@@ -2018,21 +2029,22 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		}
 	}
 
-	fn blur_imul(&'_ self, x: Value, y: Value) -> Value {
-		if light() {
-			self.imul(x, y)
-		} else {
-			let lhs = self.imul(self.bor(x, y), self.band(x, y));
-			let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
-			self.blur_iadd(lhs, rhs)
-		}
-	}
+	// fn blur_imul(&'_ self, x: Value, y: Value) -> Value {
+	// 	if light() {
+	// 		self.imul(x, y)
+	// 	} else {
+	// 		let lhs = self.imul(self.bor(x, y), self.band(x, y));
+	// 		let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
+	// 		self.blur_iadd(lhs, rhs)
+	// 	}
+	// }
 
 	fn imul_imm(&'_ self, x: Value, n: impl Into<i64>) -> Value {
 		let n: i64 = n.into();
 		if light() {
 			self.func_builder.borrow_mut().ins().imul_imm(x, n)
 		} else {
+			// Eyrolles p.57
 			let lhs = self.imul(self.bor_imm(x, n), self.band_imm(x, n));
 			let n = self.iconst(self.value_type(x), n);
 			let rhs = self.imul(self.band_not(x, n), self.band_not(n, x));
@@ -2041,17 +2053,17 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		// self.func_builder.borrow_mut().ins().imul_imm(x, n.into())
 	}
 
-	// Eyrolles p.57
-	fn blur_imul_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value {
-		if light() {
-			self.imul_imm(x, y)
-		} else {
-			let lhs = self.imul(self.bor_imm(x, y), self.band_imm(x, y));
-			let y = self.iconst(self.value_type(x), y);
-			let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
-			self.blur_iadd(lhs, rhs)
-		}
-	}
+
+	// fn blur_imul_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value {
+	// 	if light() {
+	// 		self.imul_imm(x, y)
+	// 	} else {
+	// 		let lhs = self.imul(self.bor_imm(x, y), self.band_imm(x, y));
+	// 		let y = self.iconst(self.value_type(x), y);
+	// 		let rhs = self.imul(self.band_not(x, y), self.band_not(y, x));
+	// 		self.blur_iadd(lhs, rhs)
+	// 	}
+	// }
 
 	fn ineg(&'_ self, x: Value) -> Value { self.func_builder.borrow_mut().ins().ineg(x) }
 
@@ -2100,13 +2112,24 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		self.func_builder.borrow_mut().ins().band(x, y)
 	}
 
-	fn bor(&'_ self, x: Value, y: Value) -> Value { self.func_builder.borrow_mut().ins().bor(x, y) }
+	fn bor(&'_ self, x: Value, y: Value) -> Value {
+		self.func_builder.borrow_mut().ins().bor(x, y)
+		// if light() {
+		// 	self.func_builder.borrow_mut().ins().bor(x, y)
+		// } else {
+		// 	let x_add_y = self.iadd(x, y);
+		// 	let x_and_y = self.band(x, y);
+		// 	// self.isub(x_add_y, x_and_y)
+		// 	self.func_builder.borrow_mut().ins().isub(x_add_y, x_and_y)
+		// }
 
-	fn blur_bor(&'_ self, x: Value, y: Value) -> Value {
-		let x_add_y = self.iadd(x, y);
-		let x_and_y = self.band(x, y);
-		self.isub(x_add_y, x_and_y)
 	}
+
+	// fn blur_bor(&'_ self, x: Value, y: Value) -> Value {
+	// 	let x_add_y = self.iadd(x, y);
+	// 	let x_and_y = self.band(x, y);
+	// 	self.isub(x_add_y, x_and_y)
+	// }
 
 	fn bxor(&'_ self, x: Value, y: Value) -> Value {
 		self.func_builder.borrow_mut().ins().bxor(x, y)
