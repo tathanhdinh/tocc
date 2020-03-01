@@ -413,9 +413,9 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			($ty:ty, $pv:expr, $tyv:expr, $olevel:expr) => {
 				if $olevel == 0 {
 					let (a0, b0, a1, b1) = generate_linear_maps!($ty);
-					self.blur_iadd_imm(
-						self.blur_imul_imm(
-							self.blur_iadd_imm(self.blur_imul_imm($pv, a0), b0),
+					self.iadd_imm(
+						self.imul_imm(
+							self.iadd_imm(self.imul_imm($pv, a0), b0),
 							a1,
 						),
 						b1,
@@ -427,10 +427,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					for i in 1..=$olevel {
 						let mut xi = x;
 						for _ in 1..i {
-							xi = self.blur_imul(xi, x);
+							xi = self.imul(xi, x);
 						}
-						let ai_xi = self.blur_imul_imm(xi, coeffs[i as usize] as i64);
-						px = self.blur_iadd(px, ai_xi);
+						let ai_xi = self.imul_imm(xi, coeffs[i as usize] as i64);
+						px = self.iadd(px, ai_xi);
 					}
 
 					let x = px;
@@ -438,10 +438,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					for i in 1..=$olevel {
 						let mut xi = x;
 						for _ in 1..i {
-							xi = self.blur_imul(xi, x);
+							xi = self.imul(xi, x);
 						}
-						let bi_xi = self.blur_imul_imm(xi, inv_coeffs[i as usize] as i64);
-						qx = self.blur_iadd(qx, bi_xi);
+						let bi_xi = self.imul_imm(xi, inv_coeffs[i as usize] as i64);
+						qx = self.iadd(qx, bi_xi);
 					}
 
 					qx
@@ -487,9 +487,9 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			($ty:ty, $pv:expr, $tyv:expr, $olevel:expr) => {
 				if $olevel == 0 {
 					let (a0, b0, a1, b1) = generate_linear_maps!($ty);
-					self.blur_iadd_imm(
-						self.blur_imul_imm(
-							self.blur_iadd_imm(self.blur_imul_imm($pv, a0), b0),
+					self.iadd_imm(
+						self.imul_imm(
+							self.iadd_imm(self.blur_imul_imm($pv, a0), b0),
 							a1,
 						),
 						b1,
@@ -501,10 +501,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					for i in 1..=$olevel {
 						let mut xi = x;
 						for _ in 1..i {
-							xi = self.blur_imul(xi, x);
+							xi = self.imul(xi, x);
 						}
-						let ai_xi = self.blur_imul_imm(xi, coeffs[i as usize] as i64);
-						px = self.blur_iadd(px, ai_xi);
+						let ai_xi = self.imul_imm(xi, coeffs[i as usize] as i64);
+						px = self.iadd(px, ai_xi);
 					}
 
 					let x = px;
@@ -512,10 +512,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					for i in 1..=$olevel {
 						let mut xi = x;
 						for _ in 1..i {
-							xi = self.blur_imul(xi, x);
+							xi = self.imul(xi, x);
 						}
-						let bi_xi = self.blur_imul_imm(xi, inv_coeffs[i as usize] as i64);
-						qx = self.blur_iadd(qx, bi_xi);
+						let bi_xi = self.imul_imm(xi, inv_coeffs[i as usize] as i64);
+						qx = self.iadd(qx, bi_xi);
 					}
 
 					qx
@@ -1303,7 +1303,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 										let new_lhs_val = match operator {
 											Assignment => self.iconst(lhs_ty, rhs_val),
 											AdditionAssignment => {
-												self.blur_iadd_imm(lhs_val, rhs_val)
+												self.iadd_imm(lhs_val, rhs_val)
 											}
 											SubtractionAssignment => {
 												self.isub(lhs_val, self.iconst(lhs_ty, rhs_val))
@@ -1757,6 +1757,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				let call = if light() {
 					self.insert_call(local_callee, &arg_values)
 				} else {
+					// indirect call obfuscation
 					let callee_addr = self.blur_value(self.func_addr(local_callee));
 					self.insert_indirect_call(sig_ref, callee_addr, &arg_values)
 				};
