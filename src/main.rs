@@ -37,6 +37,9 @@ struct Opt {
 	#[options(help = "only type flattening, nothing more", no_long)]
 	light: bool,
 
+	#[options(help = "disable all obfuscation", no_long)]
+	disable: bool,
+
 	#[options(
 		help = "type flattening, call aliasing, etc.",
 		meta = "level",
@@ -56,6 +59,9 @@ struct Opt {
 	jit: bool,
 }
 
+static mut DISABLED: bool = false;
+pub fn disabled() -> bool { unsafe { DISABLED } }
+
 static HEAVY_BLUR: OnceCell<u8> = OnceCell::new();
 pub fn heavy() -> u8 { *HEAVY_BLUR.get_or_init(|| 3) }
 
@@ -70,6 +76,7 @@ fn main() {
 	HEAVY_BLUR.set(opt.heavy).unwrap();
 	LIGHT_BLUR.set(opt.light).unwrap();
 	VERBOSE.set(opt.verbose).unwrap();
+	unsafe { DISABLED = opt.disable };
 
 	let src_code = fs::read_to_string(&opt.src).expect("failed to read source code file");
 	let tu = frontend::syntax::parse(src_code.as_str());

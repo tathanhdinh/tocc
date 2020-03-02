@@ -14,7 +14,7 @@
 \hypersetup{
   colorlinks = true,
   urlcolor = black,
-  pdftitle = "Type Flattening Obfuscation",
+  pdftitle = "A Lightweight Ofuscation for Function Signature Flattening",
   pdfauthor = "Ta Thanh Dinh"
 }
 \usepackage{tikz-cd}
@@ -48,7 +48,7 @@
 
 \begin{document}
 
-\title{Type Flattening Obfuscation}
+\title{A Lightweight Ofuscation for Function Signature Flattening}
 
 \author{\IEEEauthorblockN{Ta Thanh Dinh}
 \IEEEauthorblockA{tathanhdinh@gmail.com}}
@@ -169,8 +169,13 @@ We omit the phase of variable/function detection, which is an essential step bef
 type recovering, more details on this subject can be referenced in~\cite{balakrishnan_divine_2007}.
 We avoid also difficulties in disassembling, the binaries are supposed to be perfectly disassemblable.
 
-From now on, unless otherwise stated, the target language is C, the type system is C's then.
-This is also the target almost all research papers and tools in the domain.
+\subsubsection*{Setting} From now on, unless otherwise stated, the target language is C.
+We use a strong version of the type system of C where implicit conversions are disabled, basically
+it is a type system obtained by
+\begin{center}
+  \texttt{gcc -Werror -Wconversion}
+\end{center}
+% This is also the target almost all research papers and tools in the domain.
 
 \subsection{Initial work}
 \noindent

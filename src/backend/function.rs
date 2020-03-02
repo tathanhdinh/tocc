@@ -21,7 +21,7 @@ use cranelift_preopt::optimize;
 use target_lexicon::triple;
 
 use crate::{
-	checked_if_let, checked_match, checked_unwrap_option, checked_unwrap_result,
+	checked_if_let, checked_match, checked_unwrap_option, checked_unwrap_result, disabled,
 	frontend::syntax::{
 		BinaryOperator, BinaryOperatorExpression, CallExpression, Declaration, Declarator,
 		DerivedDeclarator, DoWhileStatement, Expression, ForStatement, FunctionDeclarator,
@@ -93,8 +93,15 @@ fn masquerade_function_signature(
 	return_ty: Option<Type>, param_ty: &'_ [Type], topty: Type,
 ) -> Signature {
 	Signature {
-		params: param_ty.iter().map(|_| AbiParam::new(topty)).collect(),
-		returns: if return_ty.is_some() { vec![AbiParam::new(topty)] } else { vec![] },
+		params: param_ty
+			.iter()
+			.map(|ty| if disabled() { AbiParam::new(*ty) } else { AbiParam::new(topty) })
+			.collect(),
+		returns: if let Some(return_ty) = return_ty {
+			vec![if disabled() { AbiParam::new(return_ty) } else { AbiParam::new(topty) }]
+		} else {
+			vec![]
+		},
 		call_conv: isa::CallConv::SystemV,
 	}
 }
@@ -119,15 +126,15 @@ fn blur_bor(fb: &'_ mut FunctionBuilder, x: Value, y: Value) -> Value {
 }
 
 fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
-	if light() {
-		return val;
-	}
+	// if light() {
+	// 	return val;
+	// }
 
 	let val_ty = fb.func.dfg.value_type(val);
-	let val_size = val_ty.bytes();
+	// let val_size = val_ty.bytes();
 
-	let random_type_partition = generate_random_partition(val_size);
-	let mut offset = 0i64;
+	// let random_type_partition = generate_random_partition(val_size);
+	// let mut offset = 0i64;
 
 	#[rustfmt::skip]
 	macro_rules! ins {
@@ -177,74 +184,92 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 		};
 	}
 
-	let mut acc_val = ins!().iconst(val_ty, 0);
-	// let olevel = heavy();
-	let olevel = 1;
-	for ty in random_type_partition {
-		let pv = ins!().ushr_imm(val, offset);
-		// let pv = ins!().ireduce(ty, pv);
-		let pv = if ty.bytes() < fb.func.dfg.value_type(pv).bytes() {
-			ins!().ireduce(ty, pv)
-		} else {
-			pv
-		};
-		let pv = match ty {
-			types::I8 => id!(i8, pv, ty, olevel),
-			types::I16 => id!(i16, pv, ty, olevel),
-			types::I32 => id!(i32, pv, ty, olevel),
-			types::I64 => id!(i64, pv, ty, olevel),
-			_ => pv,
-		};
-
-		let pv = if ty.bytes() < fb.func.dfg.value_type(val).bytes() {
-			ins!().uextend(val_ty, pv)
-		} else {
-			pv
-		};
-		let pv = ins!().ishl_imm(pv, offset);
-		// acc_val = blur_bor(fb, acc_val, pv);
-		acc_val = ins!().bor(acc_val, pv);
-
-		offset += ty.bits() as i64
+	match val_ty {
+		types::I8 => id!(i8, val, val_ty, 1),
+		types::I16 => id!(i16, val, val_ty, 1),
+		types::I32 => id!(i32, val, val_ty, 1),
+		types::I64 => id!(i64, val, val_ty, 1),
+		_ => val,
 	}
 
-	acc_val
+	// let mut acc_val = ins!().iconst(val_ty, 0);
+	// // let olevel = heavy();
+	// let olevel = 1;
+	// for ty in random_type_partition {
+	// 	let pv = ins!().ushr_imm(val, offset);
+	// 	// let pv = ins!().ireduce(ty, pv);
+	// 	let pv = if ty.bytes() < fb.func.dfg.value_type(pv).bytes() {
+	// 		ins!().ireduce(ty, pv)
+	// 	} else {
+	// 		pv
+	// 	};
+	// 	let pv = match ty {
+	// 		types::I8 => id!(i8, pv, ty, olevel),
+	// 		types::I16 => id!(i16, pv, ty, olevel),
+	// 		types::I32 => id!(i32, pv, ty, olevel),
+	// 		types::I64 => id!(i64, pv, ty, olevel),
+	// 		_ => pv,
+	// 	};
+
+	// 	let pv = if ty.bytes() < fb.func.dfg.value_type(val).bytes() {
+	// 		ins!().uextend(val_ty, pv)
+	// 	} else {
+	// 		pv
+	// 	};
+	// 	let pv = ins!().ishl_imm(pv, offset);
+	// 	// acc_val = blur_bor(fb, acc_val, pv);
+	// 	acc_val = ins!().bor(acc_val, pv);
+
+	// 	offset += ty.bits() as i64
+	// }
+
+	// acc_val
 }
 
-fn create_entry_block(fb: &'_ mut FunctionBuilder, param_ty: &[Type], pointer_ty: Type) -> Block {
-	let trampoline_block = fb.create_block();
-	fb.append_block_params_for_function_params(trampoline_block);
+fn create_entry_block(
+	fb: &'_ mut FunctionBuilder, param_ty: &'_ [Type], pointer_ty: Type,
+) -> Block {
+	let entry_block = if disabled() {
+		let entry_block = fb.create_block();
+		fb.append_block_params_for_function_params(entry_block);
+		entry_block
+	} else {
+		let trampoline_block = fb.create_block();
+		fb.append_block_params_for_function_params(trampoline_block);
 
-	fb.switch_to_block(trampoline_block);
-	let mut param_vals = Vec::new();
-	for (i, ty) in param_ty.iter().enumerate() {
-		let val = {
-			let val = fb.block_params(trampoline_block)[i];
-			let val = blur_value(fb, val);
+		fb.switch_to_block(trampoline_block);
+		let mut param_vals = Vec::new();
+		for (i, ty) in param_ty.iter().enumerate() {
+			let val = {
+				let val = fb.block_params(trampoline_block)[i];
+				// let val = blur_value(fb, val);
 
-			if ty.bytes() < pointer_ty.bytes() {
-				let ss = fb.create_stack_slot(StackSlotData::new(
-					StackSlotKind::ExplicitSlot,
-					pointer_ty.bytes(),
-				));
-				fb.ins().stack_store(val, ss, 0);
+				if ty.bytes() < pointer_ty.bytes() {
+					let ss = fb.create_stack_slot(StackSlotData::new(
+						StackSlotKind::ExplicitSlot,
+						pointer_ty.bytes(),
+					));
+					fb.ins().stack_store(val, ss, 0);
 
-				let ss_addr = fb.ins().stack_addr(pointer_ty, ss, 0);
-				let ss_addr = blur_value(fb as _, ss_addr);
-				fb.ins().load(*ty, MemFlags::new(), ss_addr, 0)
-			} else {
-				val
-			}
-		};
-		param_vals.push(val);
-	}
+					let ss_addr = fb.ins().stack_addr(pointer_ty, ss, 0);
+					let ss_addr = blur_value(fb as _, ss_addr);
+					fb.ins().load(*ty, MemFlags::new(), ss_addr, 0)
+				} else {
+					val
+				}
+			};
+			param_vals.push(val);
+		}
 
-	let entry_block = fb.create_block();
-	for ty in param_ty {
-		fb.append_block_param(entry_block, *ty);
-	}
-	fb.ins().jump(entry_block, &param_vals);
-	fb.seal_block(trampoline_block);
+		let entry_block = fb.create_block();
+		for ty in param_ty {
+			fb.append_block_param(entry_block, *ty);
+		}
+		fb.ins().jump(entry_block, &param_vals);
+		fb.seal_block(trampoline_block);
+
+		entry_block
+	};
 
 	fb.switch_to_block(entry_block);
 	fb.seal_block(entry_block);
@@ -535,26 +560,29 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		let ss = self.create_stack_slot(val_size as _);
 		let ss_addr = self.stack_addr(ss, 0);
 
-		let olevel = heavy();
-		let random_type_partition = generate_random_partition(val_size);
-		let mut offset = 0i32;
-		for ty in random_type_partition {
-			let pval = {
-				let pval = self.logical_shr_imm(val, offset * 8);
-				let pval = checked_unwrap_option!(self.ireduce(ty, pval));
+		// let olevel = heavy();
+		// let random_type_partition = generate_random_partition(val_size);
+		// let mut offset = 0i32;
+		// for ty in random_type_partition {
+		// 	let pval = {
+		// 		let pval = self.logical_shr_imm(val, offset * 8);
+		// 		let pval = checked_unwrap_option!(self.ireduce(ty, pval));
 
-				match ty {
-					types::I8 => id!(i8, pval, ty, olevel),
-					types::I16 => id!(i16, pval, ty, olevel),
-					types::I32 => id!(i32, pval, ty, olevel),
-					types::I64 => id!(i32, pval, ty, olevel),
-					_ => pval,
-				}
-			};
-			self.store(pval, self.split_and_merge_value(ss_addr), offset);
+		// 		match ty {
+		// 			types::I8 => id!(i8, pval, ty, olevel),
+		// 			types::I16 => id!(i16, pval, ty, olevel),
+		// 			types::I32 => id!(i32, pval, ty, olevel),
+		// 			types::I64 => id!(i32, pval, ty, olevel),
+		// 			_ => pval,
+		// 		}
+		// 	};
+		// 	self.store(pval, self.split_and_merge_value(ss_addr), offset);
 
-			offset += ty.bytes() as i32;
-		}
+		// 	offset += ty.bytes() as i32;
+		// }
+
+		let ss_addr = id!(i64, ss_addr, self.pointer_ty, 1);
+		self.store(val, ss_addr, 0);
 
 		self.stack_load(val_ty, ss, 0)
 	}
@@ -891,7 +919,12 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 							_ => todo!(),
 						}
 					};
-					let ret_val = checked_unwrap_option!(self.uextend(self.pointer_ty, val));
+					let ret_val = if disabled() {
+						val
+					} else {
+						checked_unwrap_option!(self.uextend(self.pointer_ty, val))
+					};
+					// let ret_val = checked_unwrap_option!(self.uextend(self.pointer_ty, val));
 					self.insert_return(ret_val);
 				}
 				None
@@ -1308,9 +1341,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 										let lhs_ty = self.value_type(lhs_val);
 										let new_lhs_val = match operator {
 											Assignment => self.iconst(lhs_ty, rhs_val),
-											AdditionAssignment => {
-												self.iadd_imm(lhs_val, rhs_val)
-											}
+											AdditionAssignment => self.iadd_imm(lhs_val, rhs_val),
 											SubtractionAssignment => {
 												self.isub(lhs_val, self.iconst(lhs_ty, rhs_val))
 											}
@@ -1329,18 +1360,14 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 									}) => {
 										let new_lhs_val = match operator {
 											AdditionAssignment => match pty.as_ref() {
-												PrimitiveTy(ty) => self.iadd_imm(
-													lhs_val,
-													rhs_val * ty.bytes() as i64,
-												),
+												PrimitiveTy(ty) => self
+													.iadd_imm(lhs_val, rhs_val * ty.bytes() as i64),
 												_ => todo!(),
 											},
 
 											SubtractionAssignment => match pty.as_ref() {
-												PrimitiveTy(ty) => self.iadd_imm(
-													lhs_val,
-													rhs_val * ty.bytes() as i64,
-												),
+												PrimitiveTy(ty) => self
+													.iadd_imm(lhs_val, rhs_val * ty.bytes() as i64),
 												_ => todo!(),
 											},
 
@@ -1443,23 +1470,19 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					Remainder => ValueTy(self.srem(lhs_val, rhs_val)),
 
 					Addition => match (&lhs_ty, &rhs_ty) {
-						(PrimitiveTy(_), PrimitiveTy(_)) => {
-							ValueTy(self.iadd(lhs_val, rhs_val))
-						}
+						(PrimitiveTy(_), PrimitiveTy(_)) => ValueTy(self.iadd(lhs_val, rhs_val)),
 
 						(PointerTy(pty), PrimitiveTy(_)) => match pty.as_ref() {
-							PrimitiveTy(ty) => ValueTy(self.iadd(
-								lhs_val,
-								self.imul_imm(rhs_val, ty.bytes() as i64),
-							)),
+							PrimitiveTy(ty) => ValueTy(
+								self.iadd(lhs_val, self.imul_imm(rhs_val, ty.bytes() as i64)),
+							),
 							_ => todo!(),
 						},
 
 						(PrimitiveTy(_), PointerTy(pty)) => match pty.as_ref() {
-							PrimitiveTy(ty) => ValueTy(self.iadd(
-								rhs_val,
-								self.imul_imm(lhs_val, ty.bytes() as i64),
-							)),
+							PrimitiveTy(ty) => ValueTy(
+								self.iadd(rhs_val, self.imul_imm(lhs_val, ty.bytes() as i64)),
+							),
 							_ => todo!(),
 						},
 
@@ -1513,9 +1536,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											Assignment => self.cast_value(*ty, rhs_val),
 											AdditionAssignment => self.iadd(lhs_val, rhs_val),
 											SubtractionAssignment => self.isub(lhs_val, rhs_val),
-											MultiplicationAssignment => {
-												self.imul(lhs_val, rhs_val)
-											}
+											MultiplicationAssignment => self.imul(lhs_val, rhs_val),
 											DivisionAssignment => self.idiv(lhs_val, rhs_val),
 											_ => semantically_unreachable!(),
 										};
@@ -1538,10 +1559,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											AdditionAssignment => match lhs_pty.as_ref() {
 												PrimitiveTy(lhs_pty) => self.iadd(
 													lhs_val,
-													self.imul_imm(
-														rhs_val,
-														lhs_pty.bytes() as i64,
-													),
+													self.imul_imm(rhs_val, lhs_pty.bytes() as i64),
 												),
 												_ => todo!(), // pointer to pointer, etc.
 											},
@@ -1549,10 +1567,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 											SubtractionAssignment => match lhs_pty.as_ref() {
 												PrimitiveTy(lhs_pty) => self.isub(
 													lhs_val,
-													self.imul_imm(
-														rhs_val,
-														lhs_pty.bytes() as i64,
-													),
+													self.imul_imm(rhs_val, lhs_pty.bytes() as i64),
 												),
 												_ => todo!(), // pointer to pointer, etc.
 											},
@@ -1983,7 +1998,6 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			let y = self.ineg(y);
 			self.iadd(x, y)
 		}
-
 	}
 
 	// fn blur_isub(&'_ self, x: Value, y: Value) -> Value {
@@ -2053,7 +2067,6 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		// self.func_builder.borrow_mut().ins().imul_imm(x, n.into())
 	}
 
-
 	// fn blur_imul_imm(&'_ self, x: Value, y: impl Into<i64> + Copy) -> Value {
 	// 	if light() {
 	// 		self.imul_imm(x, y)
@@ -2122,7 +2135,6 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		// 	// self.isub(x_add_y, x_and_y)
 		// 	self.func_builder.borrow_mut().ins().isub(x_add_y, x_and_y)
 		// }
-
 	}
 
 	// fn blur_bor(&'_ self, x: Value, y: Value) -> Value {
