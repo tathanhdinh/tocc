@@ -184,7 +184,7 @@ mod compilation_tests {
 	}
 
 	// fn(i32) -> i32
-	fn compile_and_run_int_to_int(file: impl AsRef<Path>, fname: &str, i: i32) -> i32 {
+	fn compile_and_run_int_to_int(file: &dyn AsRef<Path>, fname: &str, i: i32) -> i32 {
 		let src = fs::read_to_string(file).expect("failed to read source code file");
 		let tu = frontend::syntax::parse(src.as_str());
 		frontend::semantics::check(&tu);
@@ -197,7 +197,8 @@ mod compilation_tests {
 		unsafe { fptr(i) }
 	}
 
-	fn compile_and_run_int_int_to_int(file: impl AsRef<Path>, fname: &str, i: i32, j: i32) -> i32 {
+	// fn(i32, i32) -> i32
+	fn compile_and_run_int_int_to_int(file: &dyn AsRef<Path>, fname: &str, i: i32, j: i32) -> i32 {
 		let src = fs::read_to_string(file).expect("failed to read source code file");
 		let tu = frontend::syntax::parse(src.as_str());
 		frontend::semantics::check(&tu);
@@ -208,6 +209,34 @@ mod compilation_tests {
 
 		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn(i32, i32) -> i32>(fptr) };
 		unsafe { fptr(i, j) }
+	}
+
+	// fn(i64) -> i32
+	fn compile_and_run_long_to_int(file: &dyn AsRef<Path>, fname: &str, i: i64) -> i32 {
+		let src = fs::read_to_string(file).expect("failed to read source code file");
+		let tu = frontend::syntax::parse(src.as_str());
+		frontend::semantics::check(&tu);
+
+		let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+		let mut am = backend::AbstractMachine::<'_, SimpleJITBackend>::new(&tu, builder);
+		let (fptr, _) = am.compiled_function(fname).unwrap();
+
+		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn(i64) -> i32>(fptr) };
+		unsafe { fptr(i) }
+	}
+
+	// fn(i32) -> i64
+	fn compile_and_run_int_to_long(file: &dyn AsRef<Path>, fname: &str, i: i32) -> i64 {
+		let src = fs::read_to_string(file).expect("failed to read source code file");
+		let tu = frontend::syntax::parse(src.as_str());
+		frontend::semantics::check(&tu);
+
+		let builder = SimpleJITBuilder::new(cranelift_module::default_libcall_names());
+		let mut am = backend::AbstractMachine::<'_, SimpleJITBackend>::new(&tu, builder);
+		let (fptr, _) = am.compiled_function(fname).unwrap();
+
+		let fptr = unsafe { mem::transmute::<_, unsafe extern "C" fn(i32) -> i64>(fptr) };
+		unsafe { fptr(i) }
 	}
 
 	#[test]
@@ -237,7 +266,7 @@ mod compilation_tests {
 
 	#[test]
 	fn compile_5() {
-		assert_eq!(compile_and_run_int_to_int("tests/5.c", "foo", 10), 11);
+		assert_eq!(compile_and_run_int_to_int(&"tests/5.c", "foo", 10), 11);
 	}
 
 	#[test]
@@ -282,31 +311,47 @@ mod compilation_tests {
 
 	#[test]
 	fn compile_14() {
-		assert_eq!(compile_and_run_int_int_to_int("tests/14.c", "foo", 7, 8), 3);
+		assert_eq!(compile_and_run_int_int_to_int(&"tests/14.c", "foo", 7, 8), 3);
 	}
 
 	#[test]
 	fn compile_15() {
-		assert_eq!(compile_and_run_int_to_int("tests/15.c", "foobar", 17), 452);
+		assert_eq!(compile_and_run_int_to_int(&"tests/15.c", "foobar", 17), 452);
 	}
 
 	#[test]
 	fn compile_16() {
-		assert_eq!(compile_and_run_int_to_int("tests/16.c", "foo", 0), 4);
+		assert_eq!(compile_and_run_int_to_int(&"tests/16.c", "foo", 0), 4);
 	}
 
 	#[test]
 	fn compile_17() {
-		assert_eq!(compile_and_run_int_to_int("tests/17.c", "fibo", 6), 8);
+		assert_eq!(compile_and_run_int_to_int(&"tests/17.c", "fibo", 6), 8);
 	}
 
 	#[test]
 	fn compile_18() {
-		assert_eq!(compile_and_run_int_to_int("tests/18.c", "sum_0n", 4), 10);
+		assert_eq!(compile_and_run_int_to_int(&"tests/18.c", &"sum_0n", 4), 10);
 	}
 
 	#[test]
 	fn compile_19() {
-		assert_eq!(compile_and_run_int_to_int("tests/19.c", "collatz", 5), 4);
+		assert_eq!(compile_and_run_int_to_int(&"tests/19.c", &"collatz", 5), 4);
+	}
+
+	#[test]
+	fn compile_22() {
+		assert_eq!(compile_and_run_long_to_int(&"tests/22.c", &"isprime", 2), 1);
+		assert_eq!(compile_and_run_long_to_int(&"tests/22.c", &"isprime", 3), 1);
+		assert_eq!(compile_and_run_long_to_int(&"tests/22.c", &"isprime", 4), 0);
+		assert_eq!(compile_and_run_long_to_int(&"tests/22.c", &"isprime", 5), 1);
+		assert_eq!(compile_and_run_long_to_int(&"tests/22.c", &"isprime", 6), 0);
+
+
+		assert_eq!(compile_and_run_int_to_long(&"tests/22.c", &"nprime", 1), 2);
+		assert_eq!(compile_and_run_int_to_long(&"tests/22.c", &"nprime", 2), 3);
+		assert_eq!(compile_and_run_int_to_long(&"tests/22.c", &"nprime", 3), 5);
+		assert_eq!(compile_and_run_int_to_long(&"tests/22.c", &"nprime", 4), 7);
+		assert_eq!(compile_and_run_int_to_long(&"tests/22.c", &"nprime", 5), 11);
 	}
 }
