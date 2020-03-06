@@ -244,19 +244,29 @@ fn create_entry_block(
 				let val = fb.block_params(trampoline_block)[i];
 				// let val = blur_value(fb, val);
 
-				if ty.bytes() < pointer_ty.bytes() {
-					let ss = fb.create_stack_slot(StackSlotData::new(
-						StackSlotKind::ExplicitSlot,
-						pointer_ty.bytes(),
-					));
-					fb.ins().stack_store(val, ss, 0);
+				let ss = fb.create_stack_slot(StackSlotData::new(
+					StackSlotKind::ExplicitSlot,
+					pointer_ty.bytes(),
+				));
+				fb.ins().stack_store(val, ss, 0);
 
-					let ss_addr = fb.ins().stack_addr(pointer_ty, ss, 0);
-					let ss_addr = blur_value(fb as _, ss_addr);
-					fb.ins().load(*ty, MemFlags::new(), ss_addr, 0)
-				} else {
-					val
-				}
+				let ss_addr = fb.ins().stack_addr(pointer_ty, ss, 0);
+				let ss_addr = blur_value(fb as _, ss_addr);
+				fb.ins().load(*ty, MemFlags::new(), ss_addr, 0)
+
+				// if ty.bytes() < pointer_ty.bytes() {
+				// 	let ss = fb.create_stack_slot(StackSlotData::new(
+				// 		StackSlotKind::ExplicitSlot,
+				// 		pointer_ty.bytes(),
+				// 	));
+				// 	fb.ins().stack_store(val, ss, 0);
+
+				// 	let ss_addr = fb.ins().stack_addr(pointer_ty, ss, 0);
+				// 	let ss_addr = blur_value(fb as _, ss_addr);
+				// 	fb.ins().load(*ty, MemFlags::new(), ss_addr, 0)
+				// } else {
+				// 	val
+				// }
 			};
 			param_vals.push(val);
 		}
