@@ -93,12 +93,12 @@ that hide certain properties of the code.
 An optional feature of binary code decompilation is \emph{type reconstruction}, namely to recover high-level types from machine-dependent
 objects~\cite{mycroft_type-based_1999, van_emmerik_static_2007}. This is the research objective of some
 research papers~\cite{lee_tie_2011,elwazeer_scalable_2013,robbins_minx_2016,noonan_polymorphic_2016},
-and killing feature of commercial~\cite{noauthor_hex-rays_nodate,noauthor_jeb_nodate}
+and the killer feature of commercial~\cite{noauthor_hex-rays_nodate,noauthor_jeb_nodate}
 as well as open source~\cite{noauthor_ghidra_nodate} binary code analysis tools. Beside decompilation,
 types and particularly \emph{function signatures} are also essential in numerous applications,
 e.g. static binary rewriting~\cite{bernat_anywhere_2011,anand_compiler-level_2013} and
-raising~\cite{yadavalli_raising_2019,goodman_lifting_2018},
-see for example~\cite{caballero_type_2016} for a more completed list. Thus the knowledge about types
+raising~\cite{yadavalli_raising_2019,goodman_lifting_2018} (see for
+example~\cite{caballero_type_2016} for a more completed list). Thus the knowledge about types
 expand the attack surface since more analysis can be applied on the programs.
 
 Despite of successes in binary type reconstruction and the need for protecting function signatures, to the best
@@ -107,8 +107,8 @@ can find is the work of Drape~\cite{drape_generalising_2007,drape_obfuscation_20
 about abstract data type obfuscation, but he focused on complex data types (array, list, tree) and used
 the array splitting technique proposed previously by Collberg~\cite{collberg_taxonomy_1997}.
 Actually, the structure of such a
-type makes more room for obfuscation, and we consider them heavyweight since they
-always insert much code size and runtime overhead.
+type makes more room for obfuscation, and his approach is orthogonal with ours (see~\Cref{sec:relatedwork}).
+We consider them heavyweight since they always insert much code size and runtime overhead.
 
 \subsubsection*{Contribution}
 We present a new method for hiding type information, the principal idea is based on the fact that the compiler does not need to preserve all information
@@ -159,11 +159,15 @@ In summary, our contributions are as follows:
 \noindent
 In statically typed languages, the compiler does not need preserve source code level type information in
 the generated machine code (type erasure), then recovering types from binary code requires special
-techniques. Before
-presenting the type flattening obfuscation, we give a brief discussion about how current methods on binary type
-inference work and the problems they aim to solve.
+techniques. Before presenting the type flattening obfuscation, we give a brief discussion about
+current approaches on binary type inference and the problems they aim to solve.
 That gives some intuition about our goal and the techniques proposed to achieve this goal.
 %  which will be presented in the next section.
+
+From now on, unless otherwise stated, the type system is that of C. We assume that the binaries are
+compiled by some C compiler from source codes, and binary type recovery means assigning C's types for
+low-level primitives. For illustration purpose, we use a pseudo-C syntax for low-level primitives
+(e.g. \texttt{\small mov rax, rdi} is expressed as $a = i$) but the concrete meaning is mostly direct from the context.
 
 \subsection{Brief history}
 \noindent
@@ -178,11 +182,11 @@ recovery techniques have to deal with.
 Also, the survey lacks some important
 papers which are only published until later~\cite{noonan_polymorphic_2016,robbins_minx_2016}.
 
-We focus only on semantics-based approaches, recent research using machine learning~\cite{maier_typeminer_2019}
+We focus only on program semantics/type theoretical approaches, the research using machine learning~\cite{maier_typeminer_2019}
 or statistical language model~\cite{katz_estimating_2016} are out of scope of the paper.
 We omit the phase of variable/function detection, which is an essential step before
 type recovering, more details on this subject can be referenced in~\cite{balakrishnan_divine_2007}.
-We avoid also difficulties in disassembling, the binaries are supposed to be perfectly disassemblable.
+We avoid also difficulties in machine code disassembling, the binaries are assumed to be perfectly disassemblable.
 
 % \subsubsection*{Setting} From now on, unless otherwise stated, the target language is C.
 % We use a strong version of the type system of C where implicit conversions are disabled, basically
@@ -222,7 +226,7 @@ then $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$.
 
 To overcome these problems, Van Emmerik has proposed a \emph{data-flow based}
 (in contrast with Mycroft's \emph{constraint based}) approach where type information of an object will be refined gradually,
-instead of binding it early to some fixed type. He proposed using \emph{subtype lattices} to express the
+instead of binding it early to some fixed type. He proposed using \emph{subtyping lattices} to express the
 preciseness of type information:
 \begin{figure}[h]
   \centering
@@ -240,16 +244,17 @@ is only assigned later, when enough constraints are derived from other uses, e.g
   *{p'} = m
 \end{equation*}
 where $\vdash m \colon \mathtt{int}$, it then derives $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$,
-finally $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$ since
+finally $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$ from meet
 $\mathtt{ptr}(\mathtt{int}) = \mathtt{ptr}(\mathtt{int}) \sqcap \mathtt{void*}$.
 
 The lack of an IR with well-defined semantics limits Van Emmerik's work, he had to use heuristics as
-type patterns to recognize and propagate type/subtype relations.
+type patterns (e.g. adding a non-constant to some pointer implies an array access, and not a struct field
+access) to recognize and propagate type/subtype relations.
 
 \subsubsection*{Improvement}
 \noindent
-Lee et al. in TIE~\cite{lee_tie_2011} had the same idea of using type lattice for type preciseness,
-their deduction rules are more detail and support more cases
+Lee et al. in TIE~\cite{lee_tie_2011} had the same idea of using subtyping lattice,
+their deduction rules are more detailed and support more cases
 (e.g. calls and dynamic jumps) but basically similar to Van Emmerik's. For example,
 the previously discussed assignment
 \begin{equation*}
@@ -261,14 +266,20 @@ the assignment) then this constraint is equivalent with $\vdash p' \colon \matht
 improvement is the use of an IR named BIL (BAP Instruction Language), this makes the type analysis
 simpler and more coherent.
 
-\subsubsection*{Polymorphism}
-The approaches discussed until now only consider basic cases of \emph{low-level polymorphism}, e.g.
-adding a pointer to an integer may result in a pointer of the same type or not, but there are more.
-For example, \texttt{mov} can freely move data between signed and unsigned values, or even a constant
-can behaves as different types: zero is an integer, but it can be also a
-\texttt{NULL} pointer. Another case is the indistinguishability between a pointer to a struct and
-a pointer to the first field of this struct. All come from the low-level appearance of
-\emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
+Noonan et al. examined several more instances of \emph{low-level polymorphism} problem (i.e. an expression can
+behaves as different types) and considered recursive types. Inspired by the \emph{type as tree}
+idiom~\cite{kozen_efficient_1993}, they proposed a
+\emph{type capability} model where each type variable is attached with several labels representing it
+capabilities: labels are actually unary type constructors and capabilities are derived types.
+\begin{figure}[h]
+  \centering
+  \begin{tikzcd}
+    \mathtt{.load} \arrow[d, no head] \\
+    \mathtt{p}
+  \end{tikzcd}
+  \caption{Tree model of $\tau_{p}.\mathtt{load}$, the type of $*p$.}
+\end{figure}
+
 
 Noonan et al. handled these problems in Retypd~\cite{noonan_polymorphic_2016} by first
 using subtyping in almost all derived constraints. The effect of data moving $x = y$ will be represented by
@@ -284,6 +295,17 @@ the type of the dereferenced value is a subtype of type of $x$. The labels on $\
 represent constraints on the inner structure of $p$ (if exists) and $p$ itself.
 Retypd used lattices for subtype relations, and type analysis is proceeded on an IR, similar with TIE.
 
+\subsubsection*{Polymorphism}
+The approaches discussed until now only consider basic cases of \emph{low-level polymorphism}, e.g.
+adding a pointer to an integer may result in a pointer of the same type or not, but there are more.
+For example, \texttt{mov} can freely move data between signed and unsigned values, or even a constant
+can behaves as different types: zero is an integer, but it can be also a
+\texttt{NULL} pointer. Another case is the indistinguishability between a pointer to a struct and
+a pointer to the first field of this struct. All come from the low-level appearance of
+\emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
+
+
+
 \subsubsection*{Existing implementations}
 Only Van Emmerik gives an open source implementation of type recovery in his Boomerang decompiler,
 Lee et al and Noonan et al. do not. Published recently, Ghidra~\cite{noauthor_ghidra_nodate} is an
@@ -292,6 +314,8 @@ Other open source decompilers, Snowman~\cite{noauthor_snowman_nodate} or
 RetDec~\cite{kroustek_retdec_2017}, seem do not focus much on type analysis.
 There are also commercial tools whose methods are not published,
 most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and JEB~\cite{noauthor_jeb_nodate}.
+
+\subsection{Low-level polymorphism}
 
 \section{Type flattening}
 \noindent
@@ -670,7 +694,7 @@ decompilers on binaries generated by \emph{uCc}.
 % 	\end{adjustwidth}
 % \end{table*}
 
-\section{Related work}
+\section{Related work}\label{sec:relatedwork}
 \noindent
 there is still no explicit effort in obfuscating
 high-level types. There would be several reasons for this lack of effort.
