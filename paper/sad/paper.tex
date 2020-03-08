@@ -269,16 +269,26 @@ simpler and more coherent.
 Noonan et al. examined several more instances of \emph{low-level polymorphism} problem (i.e. an expression can
 behaves as different types) and considered recursive types. Inspired by the \emph{type as tree}
 idiom~\cite{kozen_efficient_1993}, they proposed a
-\emph{type capability} model where each type variable is attached with several labels representing it
+\emph{type capability} model where each type variable may attach with labels representing it
 capabilities: labels are actually unary type constructors and capabilities are derived types.
 \begin{figure}[h]
   \centering
   \begin{tikzcd}
-    \mathtt{.load} \arrow[d, no head] \\
-    \mathtt{p}
+    & \rightarrow \arrow[dl, no head] \arrow[dr, no head] & \\
+    \mathtt{.store} \arrow[d, no head] & & \mathtt{int}  \\
+    \mathtt{int} & &
   \end{tikzcd}
-  \caption{Tree model of $\tau_{p}.\mathtt{load}$, the type of $*p$.}
+  \caption{Tree of type $\mathtt{int*} \rightarrow \mathtt{int}$}
+  \label{fig:treetype}
 \end{figure}
+
+% \begin{figure}[h]
+% 	\centering
+% 	\begin{tikzcd}
+%     	& \mathtt{size64} \arrow{dl}[sloped,above]{<\colon} \arrow{d}[sloped,above]{\colon>} \arrow{dr}[sloped, above]{\colon>} & \\
+%     	\mathtt{char*} & \mathtt{signed32} & \mathtt{unsigned16}
+%   	\end{tikzcd}
+% \end{figure}
 
 
 Noonan et al. handled these problems in Retypd~\cite{noonan_polymorphic_2016} by first
