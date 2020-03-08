@@ -160,7 +160,7 @@ In summary, our contributions are as follows:
 In statically typed languages, the compiler does not need preserve source code level type information in
 the generated machine code (type erasure), then recovering types from binary code requires special
 techniques. Before presenting the type flattening obfuscation, we give a brief discussion about
-current approaches on binary type inference and the problems they aim to solve.
+current approaches on binary type inference and \emph{the problems they aim to solve}.
 That gives some intuition about our goal and the techniques proposed to achieve this goal.
 %  which will be presented in the next section.
 
@@ -253,7 +253,7 @@ access) to recognize and propagate type/subtype relations.
 
 \subsubsection*{Improvement}
 \noindent
-Lee et al. in TIE~\cite{lee_tie_2011} had the same idea of using subtyping lattice,
+The later work always lifts machine code to an IR before type analysis. Lee et al. in TIE~\cite{lee_tie_2011} had the same idea of using subtyping lattice,
 their deduction rules are more detailed and support more cases
 (e.g. calls and dynamic jumps) but basically similar to Van Emmerik's. For example,
 the previously discussed assignment
@@ -262,74 +262,69 @@ the previously discussed assignment
 \end{equation*}
 will generate $\vdash \mathtt{ptr}(T_{\beta}) <\colon \tau_{p'}$ where $T_{\beta}$ is
 a type variable and $\tau_{p'}$ means type of $p'$, but $T_{\beta}$ is not free (never used outside
-the assignment) then this constraint is equivalent with $\vdash p' \colon \mathtt{void*}$. The notable
-improvement is the use of an IR named BIL (BAP Instruction Language), this makes the type analysis
-simpler and more coherent.
+the assignment) then this constraint is equivalent with $\vdash p' \colon \mathtt{void*}$.
+% The notable
+% improvement is the use of an IR named BIL (BAP Instruction Language), this makes the type analysis
+% simpler and more coherent.
 
-Noonan et al. examined several more instances of \emph{low-level polymorphism} problem (i.e. an expression can
-behaves as different types) and considered recursive types. Inspired by the \emph{type as tree}
+Noonan et al. in Retypd~\cite{noonan_polymorphic_2016} examined several more instances of
+\emph{low-level polymorphism} problem.
+% (i.e. an expression can behaves as different types)
+As with \emph{type as tree}
 idiom~\cite{kozen_efficient_1993}, they proposed a
 \emph{type capability} model where each type variable may attach with labels representing it
 capabilities: labels are actually unary type constructors and capabilities are derived types.
 \begin{figure}[h]
   \centering
   \begin{tikzcd}
-    & \rightarrow \arrow[dl, no head] \arrow[dr, no head] & \\
-    \mathtt{.store} \arrow[d, no head] & & \mathtt{int}  \\
-    \mathtt{int} & &
+    \mathtt{.load} \arrow[d, no head] \\
+    \mathtt{ptr}(\mathtt{int})
   \end{tikzcd}
-  \caption{Tree of type $\mathtt{int*} \rightarrow \mathtt{int}$}
-  \label{fig:treetype}
+  \caption{Tree for derived type when reading a pointer of type $\mathtt{int}$}
+  \label{fig:derivedtype}
 \end{figure}
-
-% \begin{figure}[h]
-% 	\centering
-% 	\begin{tikzcd}
-%     	& \mathtt{size64} \arrow{dl}[sloped,above]{<\colon} \arrow{d}[sloped,above]{\colon>} \arrow{dr}[sloped, above]{\colon>} & \\
-%     	\mathtt{char*} & \mathtt{signed32} & \mathtt{unsigned16}
-%   	\end{tikzcd}
-% \end{figure}
-
-
-Noonan et al. handled these problems in Retypd~\cite{noonan_polymorphic_2016} by first
-using subtyping in almost all derived constraints. The effect of data moving $x = y$ will be represented by
-$\vdash \tau_{y} <\colon \tau_{x}$. More importantly, they proposed a
-\emph{type capability} model: each type variable is attached with several labels representing it capabilities.
-For example, the pointer dereference and assignment
+% Noonan et al. handled these problems in Retypd~\cite{noonan_polymorphic_2016} by first using
+Retypd uses subtyping in almost all derived constraints,
+% The effect of data moving $x = y$ will be represented by
+% $\vdash \tau_{y} <\colon \tau_{x}$. More importantly, they proposed a \emph{type capability} model: each type variable is attached with several labels representing it capabilities.
+for example, the pointer dereference and assignment
 \begin{equation*}
   x = *p
 \end{equation*}
 will result in $\vdash \tau_{p}.\mathtt{load} <\colon \tau_{x}$, means $p$ is a readable pointer
 ($\mathtt{.load}$ label), and
 the type of the dereferenced value is a subtype of type of $x$. The labels on $\tau_{p}$ allows to
-represent constraints on the inner structure of $p$ (if exists) and $p$ itself.
-Retypd used lattices for subtype relations, and type analysis is proceeded on an IR, similar with TIE.
+represent constraints on the inner structure of $p$ (e.g. when $p$ is some struct pointer) and $p$ itself.
+% Retypd uses subtype lattices, as in TIE and Van Emmerik's.
+% and type analysis is proceeded on an IR, as in TIE.
 
-\subsubsection*{Polymorphism}
-The approaches discussed until now only consider basic cases of \emph{low-level polymorphism}, e.g.
-adding a pointer to an integer may result in a pointer of the same type or not, but there are more.
-For example, \texttt{mov} can freely move data between signed and unsigned values, or even a constant
-can behaves as different types: zero is an integer, but it can be also a
-\texttt{NULL} pointer. Another case is the indistinguishability between a pointer to a struct and
-a pointer to the first field of this struct. All come from the low-level appearance of
-\emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
-
-
+% \subsubsection*{Polymorphism}
+% The approaches discussed until now only consider basic cases of \emph{low-level polymorphism}, e.g.
+% adding a pointer to an integer may result in a pointer of the same type or not, but there are more.
+% For example, \texttt{mov} can freely move data between signed and unsigned values, or even a constant
+% can behaves as different types: zero is an integer, but it can be also a
+% \texttt{NULL} pointer. Another case is the indistinguishability between a pointer to a struct and
+% a pointer to the first field of this struct. All come from the low-level appearance of
+% \emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
 
 \subsubsection*{Existing implementations}
-Only Van Emmerik gives an open source implementation of type recovery in his Boomerang decompiler,
+Only Van Emmerik gives an open source implementation of his method in the Boomerang decompiler,
 Lee et al and Noonan et al. do not. Published recently, Ghidra~\cite{noauthor_ghidra_nodate} is an
-open source decompiler which has type recovery, we do not know how it works yet.
-Other open source decompilers, Snowman~\cite{noauthor_snowman_nodate} or
-RetDec~\cite{kroustek_retdec_2017}, seem do not focus much on type analysis.
-There are also commercial tools whose methods are not published,
-most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and JEB~\cite{noauthor_jeb_nodate}.
+open source decompiler with type recovery.
+Snowman~\cite{noauthor_snowman_nodate} and
+RetDec~\cite{kroustek_retdec_2017} seem do not focus much on type analysis.
+There are also commercial tools, most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and
+JEB~\cite{noauthor_jeb_nodate}, their methods are not published.
 
-\subsection{Low-level polymorphism}
+\subsection{Polymorphism}
+\noindent
+One of the problems that all binary type recovery methods aim at is to capture the
+\emph{low-level polymorphism} in their type systems.
+
 
 \section{Type flattening}
 \noindent
-In this section, we present our proposal for type flattening obfuscation and techniques used in
+In this section, we present our proposal for type flattening notion and techniques used in
 our obfuscating compiler \emph{uCc} to obtain that notion. We
 focus only on obfuscating scalar types (pointers, integers, but not floats), supporting aggregate types
 (e.g. struct, nested struct) is still the ongoing work.
