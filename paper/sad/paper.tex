@@ -226,7 +226,7 @@ then $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$.
 
 To overcome these problems, Van Emmerik has proposed a \emph{data-flow based}
 (in contrast with Mycroft's \emph{constraint based}) approach where type information of an object will be refined gradually,
-instead of binding it early to some fixed type. He proposed using \emph{subtyping lattices} to express the
+instead of binding it early to some fixed type. He proposed using \emph{subtype lattices} to express the
 preciseness of type information:
 \begin{figure}[h]
   \centering
@@ -253,10 +253,11 @@ access) to recognize and propagate type/subtype relations.
 
 \subsubsection*{Improvement}
 \noindent
-The later work always lifts machine code to an IR before type analysis. Lee et al. in TIE~\cite{lee_tie_2011} had the same idea of using subtyping lattice,
-their deduction rules are more detailed and support more cases
-(e.g. calls and dynamic jumps) but basically similar to Van Emmerik's. For example,
-the previously discussed assignment
+The later work always lifts machine code to an IR before type analysis.
+Lee et al. in TIE~\cite{lee_tie_2011} had a similar idea of using subtype lattice,
+their type system are more detailed and support more cases thanks to the IR
+(e.g. struct/function types, constraints for call/jump) but basically
+similar to Van Emmerik's. For example, the previously discussed assignment
 \begin{equation*}
   p' = p + n
 \end{equation*}
@@ -268,7 +269,7 @@ the assignment) then this constraint is equivalent with $\vdash p' \colon \matht
 % simpler and more coherent.
 
 Noonan et al. in Retypd~\cite{noonan_polymorphic_2016} examined several more instances of
-\emph{low-level polymorphism} problem.
+\emph{low-level polymorphism} problem (see~\Cref{subsec:polymorphism}).
 % (i.e. an expression can behaves as different types)
 As with \emph{type as tree}
 idiom~\cite{kozen_efficient_1993}, they proposed a
@@ -284,10 +285,10 @@ capabilities: labels are actually unary type constructors and capabilities are d
   \label{fig:derivedtype}
 \end{figure}
 % Noonan et al. handled these problems in Retypd~\cite{noonan_polymorphic_2016} by first using
-Retypd uses subtyping in almost all derived constraints,
+Retypd uses subtyping in almost all derived type constraints.
 % The effect of data moving $x = y$ will be represented by
 % $\vdash \tau_{y} <\colon \tau_{x}$. More importantly, they proposed a \emph{type capability} model: each type variable is attached with several labels representing it capabilities.
-for example, the pointer dereference and assignment
+For example, the pointer dereference and assignment
 \begin{equation*}
   x = *p
 \end{equation*}
@@ -316,7 +317,7 @@ RetDec~\cite{kroustek_retdec_2017} seem do not focus much on type analysis.
 There are also commercial tools, most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and
 JEB~\cite{noauthor_jeb_nodate}, their methods are not published.
 
-\subsection{Polymorphism}
+\subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
 One of the problems that all binary type recovery methods aim at is to capture the
 \emph{low-level polymorphism} in their type systems.
