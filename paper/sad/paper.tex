@@ -213,7 +213,7 @@ since adding two pointers does not type check.
 The method of Mycroft has several limits, as pointed out by Van Emmerik~\cite{van_emmerik_static_2007}.
 One of them comes from the fact that the low-level languages take care mostly on the value of
 the computation, then (the result of) an expression can be used in several ways and it behaves as
-different types (low-level polymorphism). Let's consider an assignment
+different types (see~\Cref{subsec:polymorphism}). Let's consider an assignment
 \begin{equation*}
   p' = p + n
 \end{equation*}
@@ -271,8 +271,7 @@ the assignment) then this constraint is equivalent with $\vdash p' \colon \matht
 Noonan et al. in Retypd~\cite{noonan_polymorphic_2016} examined several more instances of
 \emph{low-level polymorphism} problem (see~\Cref{subsec:polymorphism}).
 % (i.e. an expression can behaves as different types)
-As with \emph{type as tree}
-idiom~\cite{kozen_efficient_1993}, they proposed a
+As with \emph{type as labeled tree} idiom~\cite{kozen_efficient_1993}, they proposed a
 \emph{type capability} model where each type variable may attach with labels representing it
 capabilities: labels are actually unary type constructors and capabilities are derived types.
 \begin{figure}[h]
@@ -308,14 +307,14 @@ represent constraints on the inner structure of $p$ (e.g. when $p$ is some struc
 % a pointer to the first field of this struct. All come from the low-level appearance of
 % \emph{type casting}, more details can be referenced in~\cite{siff_coping_1999}.
 
-\subsubsection*{Existing implementations}
-Only Van Emmerik gives an open source implementation of his method in the Boomerang decompiler,
-Lee et al and Noonan et al. do not. Published recently, Ghidra~\cite{noauthor_ghidra_nodate} is an
-open source decompiler with type recovery.
-Snowman~\cite{noauthor_snowman_nodate} and
-RetDec~\cite{kroustek_retdec_2017} seem do not focus much on type analysis.
-There are also commercial tools, most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and
-JEB~\cite{noauthor_jeb_nodate}, their methods are not published.
+% \subsubsection*{Existing implementations}
+% Only Van Emmerik gives an open source implementation of his method in the Boomerang decompiler,
+% Lee et al and Noonan et al. do not. Published recently, Ghidra~\cite{noauthor_ghidra_nodate} is an
+% open source decompiler with type recovery.
+% Snowman~\cite{noauthor_snowman_nodate} and
+% RetDec~\cite{kroustek_retdec_2017} seem do not focus much on type analysis.
+% There are also commercial tools, most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and
+% JEB~\cite{noauthor_jeb_nodate}, their methods are not published.
 
 \subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
