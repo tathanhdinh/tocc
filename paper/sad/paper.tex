@@ -101,7 +101,7 @@ raising~\cite{yadavalli_raising_2019,goodman_lifting_2018} (see for
 example~\cite{caballero_type_2016} for a more completed list). Thus the knowledge about types
 expand the attack surface since more analysis can be applied on the programs.
 
-Despite of successes in binary type reconstruction and the need for protecting function signatures, to the best
+Despite of successes in binary type recovery and the need for protecting function signatures, to the best
 of our knowledge, there is currently little effort in hiding type information. The most related research that we
 can find is the work of Drape~\cite{drape_generalising_2007,drape_obfuscation_2004,drape_obfuscation_2006}
 about abstract data type obfuscation, but he focused on complex data types (array, list, tree) and used
@@ -135,7 +135,11 @@ signatures, the method can be easily extended for complex types.
 % \noindent
 In summary, our contributions are as follows:
 \begin{itemize}
-  \item We introduce the notion of \emph{type flattening} (in~\Cref{subsec:typeflatteningnotion}), it aims at protecting a high-level
+  \item We give a critical analysis (see~\Cref{subsec:polymorphism}) about how current binary type recovery methods deal with
+  the \emph{low-level polymorphism} problem, as it turns out there exist always instances of this problem that
+  these methods cannot capture.
+
+  \item We introduce the notion of \emph{type flattening} (see~\Cref{subsec:typeflatteningnotion}), it aims at protecting a high-level
   property (types) of the program, in contrast with classical methods which focus on lower
   properties as data or control flow.
 
@@ -322,12 +326,12 @@ supports recursive types, while TIE cannot.
 \subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
 One of the problems that all binary type recovery methods aim at is to capture the
-\emph{low-level polymorphism} in their type systems. Naturally, that means an low-level expression
+\emph{low-level polymorphism} in their type systems. This kind of polymorphism means an low-level expression
 behaves as it has different high-level types (i.e. types that a high-level type system assigns to it).
 One of the instances is pointer arithmetic, the expression $p + c$
 where $p$ is a pointer and $c$ is some constant, may be of type $\tau_{p}$ (same type with the pointer
 $p$) or just an unknown pointer type $\tau_{\alpha}$. This pattern is captured by the type system
-of Van Emmerik (and both TIE and Retypd). Another instance is zero value,
+of Van Emmerik (as with TIE and Retypd). Another instance is zero value,
 after the operation
 \begin{equation*}
   \mathtt{xor} \quad \mathtt{rax}, \medspace \mathtt{rax}
@@ -347,10 +351,11 @@ signed and unsigned integer.
 8  add eax, ecx
 9  ret
 \end{lstlisting}
-Retypd captures this instance partially using a seemingly unintuitive rule
+Retypd captures this instance by a seemingly unintuitive rule:
 $x = y$ derives $\tau_{y} <\colon \tau_{x}$ (while with TIE $\tau_{y} = \tau_{x}$) which relaxes
-the type of $\mathtt{eax}$ in the data movement operations at line 1 and line 6. Another class of
-patterns called \emph{physical subtyping}, its treatment can be referenced in~\cite{siff_coping_1999}.
+the types of $\mathtt{eax}$ in the data copy operations at line 1 and line 6. Retypd captures also
+another class of low-level polymorphism instances called \emph{physical subtyping}~\cite{siff_coping_1999},
+which is layout-safe casting between structs.
 \begin{lstlisting}[style={c},caption={Signed and unsigned division (source)},label={lst:divisionc}]
 unsigned foo(unsigned x, unsigned y) {
   unsigned z = x / y;
@@ -361,17 +366,21 @@ unsigned foo(unsigned x, unsigned y) {
 }
 \end{lstlisting}
 
-But the problem is that there are also many instances which are completely computational,
-they are generated either by the compiler after the type checking, thus independent with the high-level type
-system (type erasure); or by casting, thus bypass the type system. In summary, there exist always instances that no high-level type system, with fixed set of
-type propagation rules as discussed above, can capture. To end the discussion, the following expression
-is used to roundup a pointer to a page boundary~\cite{noauthor_mprotect_nodate} before passing
-to $\mathtt{mprotect}$
+But the problem is that there are also many instances which are completely computational
+(i.e. beyond which a set of limited type propagation rules can reach), they
+are generated either \raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {1}}} by the compiler after
+the type checking, thus independent with the high-level type system (type erasure);
+or \raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {2}}} by casting, thus bypass the type system.
+In summary, there exist always instances that no high-level type system, among the ones discussed
+above, can capture. To end the discussion about low-level polymorphism, let us look at the following expression
 \begin{equation*}
-  (\mathtt{void} *)((\mathtt{uintptr\_t})p + \mathtt{PAGESIZE} - 1 \& ~(\mathtt{PAGESIZE} - 1))
+  (\mathtt{void} *)((\mathtt{uintptr\_t})p + \mathtt{PAGESIZE} - 1 \& \sim(\mathtt{PAGESIZE} - 1))
 \end{equation*}
-As we can see, the pointer $p$ is used just as an integer, but the value of the expression is used
-as a pointer.
+which is used to roundup a pointer to a page boundary~\cite{noauthor_mprotect_nodate} before
+passing to $\mathtt{mprotect}$.
+The pointer $p$ is cast to use as an integer, but the value of the expression
+is cast back as a pointer. All previously discussed binary type recovery methods have difficulties in dealing with this
+expression.
 
 \section{Type flattening}
 \noindent
