@@ -450,19 +450,23 @@ impl<'a> SimpleType<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrimitiveType {
 	Char,
+	UChar,
 	Short,
+	UShort,
 	Int,
+	UInt,
 	Long,
+	ULong,
 }
 
 impl PrimitiveType {
 	pub fn size(&self) -> Option<usize> {
 		use PrimitiveType::*;
 		match self {
-			Char => Some(1),
-			Short => Some(2),
-			Int => Some(4),
-			Long => Some(8),
+			Char | UChar => Some(1),
+			Short | UShort => Some(2),
+			Int | UInt => Some(4),
+			Long | ULong => Some(8),
 		}
 	}
 }
@@ -473,10 +477,16 @@ impl Into<PrimitiveType> for &'_ TypeSpecifier<'_> {
 		use TypeSpecifier::*;
 		match self {
 			CharTy => Char,
+			UCharTy => UChar,
 			ShortTy => Short,
+			UShortTy => UShort,
 			IntTy => Int,
+			UIntTy => UInt,
 			LongTy => Long,
-			_ => unsafe { unreachable_unchecked() },
+			ULongTy => ULong,
+			_ => unsafe {
+				unreachable_unchecked()
+			},
 		}
 	}
 }
@@ -559,7 +569,9 @@ pub fn check_statement<'a>(
 								_ => unimpl!("unsupported lhs"),
 							},
 
-							_ => unsafe { unreachable_unchecked() },
+							_ => unsafe {
+								unreachable_unchecked()
+							},
 						}
 					}
 

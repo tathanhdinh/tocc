@@ -4,7 +4,7 @@ use std::hint::unreachable_unchecked;
 use crate::error;
 
 const KEYWORDS: &'_ [&'_ str] = &[
-	"if", "else", "for", "while", "do", "char", "short", "int", "long", "return", "struct", "void",
+	"if", "else", "for", "while", "do", "unsigned", "char", "short", "int", "long", "return", "struct", "void",
 ];
 
 #[derive(Clone, Debug)]
@@ -188,10 +188,10 @@ pub struct StructType<'a> {
 // C11: 6.2.5 Types
 #[derive(Clone, Debug)]
 pub enum TypeSpecifier<'a> {
-	CharTy,
-	ShortTy,
-	IntTy,
-	LongTy,
+	CharTy, UCharTy,
+	ShortTy, UShortTy,
+	IntTy, UIntTy,
+	LongTy, ULongTy,
 	StructTy(StructType<'a>),
 	VoidTy,
 }
@@ -236,9 +236,13 @@ peg::parser! {grammar parser() for str {
 
 	rule type_specifier() -> TypeSpecifier<'input>
 		= "char" { TypeSpecifier::CharTy }
+		/ "unsigned" blank()+ "char" { TypeSpecifier::UCharTy }
 		/ "short" { TypeSpecifier::ShortTy }
+		/ "unsigned" blank()+ "short" { TypeSpecifier::UShortTy }
 		/ "int" { TypeSpecifier::IntTy }
+		/ "unsigned" blank()+ "int" { TypeSpecifier::UIntTy }
 		/ "long" { TypeSpecifier::LongTy }
+		/ "unsigned" blank()+ "long" { TypeSpecifier::ULongTy }
 		/ "void" { TypeSpecifier::VoidTy }
 		/ "struct" blank()+ i:identifier() blank()* "{" blank()* dss:declaration_stmt()* blank()* "}" {
 			let ds: Vec<_> = dss.iter().map(|s| {

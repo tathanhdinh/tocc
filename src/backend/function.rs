@@ -61,7 +61,9 @@ pub fn get_function_signature(
 		func_def;
 
 	let return_ty = match specifier {
-		CharTy | ShortTy | IntTy | LongTy => Some(specifier.into()),
+		CharTy | UCharTy | ShortTy | UShortTy | IntTy | UIntTy | LongTy | ULongTy => {
+			Some(specifier.into())
+		}
 		StructTy(_) => todo!(),
 		VoidTy => None,
 	};
@@ -78,7 +80,9 @@ pub fn get_function_signature(
 			} else {
 				// non pointer types
 				match specifier {
-					CharTy | ShortTy | IntTy | LongTy => specifier.into(),
+					CharTy | UCharTy | ShortTy | UShortTy | IntTy | UIntTy | LongTy | ULongTy => {
+						specifier.into()
+					}
 					StructTy(_) => todo!(),
 					VoidTy => semantically_unreachable!(),
 				}

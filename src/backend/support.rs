@@ -79,15 +79,21 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 	}
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum CType {
+	Signed(Type),
+	Unsigned(Type),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionType {
-	pub return_ty: Option<Type>,
-	pub param_ty: Vec<Type>,
+	pub return_ty: Option<CType>,
+	pub param_ty: Vec<CType>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EffectiveType<'a> {
-	PrimitiveTy(Type),
+	PrimitiveTy(CType),
 	AggregateTy(AggregateType<'a>),
 	FunctionTy(FunctionType),
 	PointerTy(Box<EffectiveType<'a>>),
@@ -126,14 +132,18 @@ pub enum SimpleTypedIdentifier<'a> {
 	PointerIdent(PointerIdentifer<'a>),
 }
 
-impl Into<Type> for &TypeSpecifier<'_> {
-	fn into(self) -> Type {
+impl Into<CType> for &TypeSpecifier<'_> {
+	fn into(self) -> CType {
 		use TypeSpecifier::*;
+		use CType::*;
 		match self {
-			CharTy => types::I8,
-			ShortTy => types::I16,
-			IntTy => types::I32,
-			LongTy => types::I64,
+			CharTy => Signed(types::I8),
+			UCharTy => Unsigned(types::I8),
+			ShortTy => Signed(types::I16),
+			UShortTy => Unsigned(types::I16),
+			IntTy => Signed(types::I32),
+			UIntTy => Unsigned(types::I32),
+			LongTy | ULongTy => types::I64,
 			_ => unsafe { unreachable_unchecked() },
 		}
 	}
