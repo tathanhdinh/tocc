@@ -179,9 +179,9 @@ A broad survey for research on binary type recovery until 2015 is~\cite{caballer
 always with physical storage primitives (e.g. registers, memory), there are no essential differences between types and
 data structures, so are the techniques to recover them. Actually, types are logical compile-time constraints, they
 may or may not have storage imprints. An example is C's \emph{type qualifier} (e.g.
-\texttt{\small const}, \texttt{\small restrict}), and in general any
+\texttt{\small const}, \texttt{\small volatile}), and in general any
 \emph{refinement type} should not leave storage traces, the same thing with generics. More concretely, as
-we will present in the section, the \emph{physical subtyping}~\cite{siff_coping_1999} is a specific problem that binary type
+we will present in the section, the \emph{low-level polymorphism} is a specific problem that binary type
 recovery techniques have to deal with.
 Also, the survey lacks some important
 papers which are only published until later~\cite{noonan_polymorphic_2016,robbins_minx_2016}.
@@ -251,29 +251,29 @@ where $\vdash m \colon \mathtt{int}$, it then derives $\vdash p' \colon \mathtt{
 finally $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$ from meet
 $\mathtt{ptr}(\mathtt{int}) = \mathtt{ptr}(\mathtt{int}) \sqcap \mathtt{void*}$.
 
-The lack of an IR with well-defined semantics limits Van Emmerik's work, he had to use heuristics as
-type patterns (e.g. adding a non-constant to some pointer implies an array access, and not a struct field
+The lack of an IR with well-defined semantics and a type constraint solver limits Van Emmerik's work, he had to use heuristics as
+type patterns (e.g. adding a non-constant to some pointer implies an array access, not a struct field
 access) to recognize and propagate type/subtype relations.
 
 \subsubsection*{Improvement}
 \noindent
-The later work always lifts machine code to an IR before type analysis.
-Lee et al. in TIE~\cite{lee_tie_2011} had a similar idea of using subtype lattice,
-their type system are more detailed and support more cases thanks to the IR
-(e.g. struct/function types, constraints for call/jump) but basically
-similar to Van Emmerik's. For example, the previously discussed assignment
+The later work always lifts machine code to an IR before type analysis. Lee et al. in
+TIE~\cite{lee_tie_2011} had a similar idea of using subtype lattice, their type system are more
+detailed and support more cases (e.g. struct/function types, constraints for call/jump) but basically
+similar to Van Emmerik's. For example, the assignment
 \begin{equation*}
   p' = p + n
 \end{equation*}
 will generate $\vdash \mathtt{ptr}(T_{\beta}) <\colon \tau_{p'}$ where $T_{\beta}$ is
-a type variable and $\tau_{p'}$ means type of $p'$, but $T_{\beta}$ is not free (never used outside
-the assignment) then this constraint is equivalent with $\vdash p' \colon \mathtt{void*}$.
+a type variable and $\tau_{p'}$ means type of $p'$. Since $T_{\beta}$ is not free (never used outside
+the assignment), this constraint is more or less equivalent with $\vdash p' \colon \mathtt{void*}$. The type
+propagation in TIE, thanks to the type constraint solver, does not need type pattern heuristics.
 % The notable
 % improvement is the use of an IR named BIL (BAP Instruction Language), this makes the type analysis
 % simpler and more coherent.
 
 Noonan et al. in Retypd~\cite{noonan_polymorphic_2016} examined several more instances of
-\emph{low-level polymorphism} problem (see~\Cref{subsec:polymorphism}).
+low-level polymorphism problem (see~\Cref{subsec:polymorphism}).
 % (i.e. an expression can behaves as different types)
 As with \emph{type as labeled tree} idiom~\cite{kozen_efficient_1993}, they proposed a
 \emph{type capability} model where each type variable may attach with labels representing it
@@ -300,7 +300,7 @@ will result in $\vdash \tau_{p}.\mathtt{load} <\colon \tau_{x}$, means $p$ is a 
 the type of the dereferenced value is a subtype of type of $x$. The labels on $\tau_{p}$ allows to
 represent constraints on the inner structure of $p$ and $p$ itself. For example,
 we may have $\tau_{p}.\mathtt{load} <\colon \tau_{p}$, which means $p$ is a pointer to some struct
-whose the first field is also of type pointer to this struct and $p$ itself. That way, Retypd
+whose the first field is also of type pointer to this struct. That way, Retypd
 supports recursive types, while TIE cannot.
 % Retypd uses subtype lattices, as in TIE and Van Emmerik's.
 % and type analysis is proceeded on an IR, as in TIE.
@@ -326,18 +326,22 @@ supports recursive types, while TIE cannot.
 \subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
 One of the problems that all binary type recovery methods aim at is to capture the
-\emph{low-level polymorphism} in their type systems. This kind of polymorphism means an low-level expression
-behaves as it has different high-level types (i.e. types that a high-level type system assigns to it).
-One of the instances is pointer arithmetic, the expression $p + c$
+\emph{low-level polymorphism} in their type systems. This kind of polymorphism means an
+low-level object may have different high-level types, this either comes from type erasure in
+compilation (high-level objects with distinguished types are compiled into a
+single low-level object, or casting used in the source code.
+% (i.e. types assigned by the high-level type system).
+
+One of the first discovered instances is pointer arithmetic, the expression $p + c$
 where $p$ is a pointer and $c$ is some constant, may be of type $\tau_{p}$ (same type with the pointer
-$p$) or just an unknown pointer type $\tau_{\alpha}$. This pattern is captured by the type system
-of Van Emmerik (as with TIE and Retypd). Another instance is zero value,
-after the operation
-\begin{equation*}
-  \mathtt{xor} \quad \mathtt{rax}, \medspace \mathtt{rax}
-\end{equation*}
-the register $\mathtt{rax}$ can be used both as an integer and as a \texttt{NULL} pointer; the pattern
-is captured by Retypd only. A more complex instance is shown in~\Cref{lst:divisionasm} (its source code
+$p$) or just an unknown pointer type $\tau_{\alpha}$. This instance is captured by the type system
+of Van Emmerik (as with TIE and Retypd). Another instance is symbolic constants, e.g. after being reset
+\texttt{\small xor rax,rax},
+% \begin{equation*}
+%   \mathtt{xor} \quad \mathtt{rax}, \medspace \mathtt{rax}
+% \end{equation*}
+the register $\mathtt{rax}$ can be used both as an integer (of value $0$) and as a pointer
+(of value \texttt{NULL}); the pattern is captured by Retypd only. A more complex example is shown in~\Cref{lst:divisionasm} (its source code
 is in~\Cref{lst:divisionc}), as we can see $\mathtt{eax}$ (or $\mathtt{edi}$) behaves as it is of type
 signed and unsigned integer.
 \begin{lstlisting}[language={[x86masm]Assembler},caption={Signed and unsigned division},label={lst:divisionasm}]
@@ -351,17 +355,15 @@ signed and unsigned integer.
 8  add eax, ecx
 9  ret
 \end{lstlisting}
-Retypd captures this instance by a seemingly unintuitive rule:
+It is captured in Retypd by a seemingly controversial rule:
 $x = y$ derives $\tau_{y} <\colon \tau_{x}$ (while with TIE $\tau_{y} = \tau_{x}$) which relaxes
 the types of $\mathtt{eax}$ in the data copy operations at line 1 and line 6. Retypd captures also
-another class of low-level polymorphism instances called \emph{physical subtyping}~\cite{siff_coping_1999},
+another kind of low-level polymorphism called \emph{physical subtyping}~\cite{siff_coping_1999},
 which is layout-safe casting between structs.
 \begin{lstlisting}[style={c},caption={Signed and unsigned division (source)},label={lst:divisionc}]
 unsigned foo(unsigned x, unsigned y) {
   unsigned z = x / y;
-  int x0 = (int)x;
-  int y0 = (int)y;
-  int z0 = x0 / y0;
+  int z0 = (int)x / (int)y;
   return z + z0;
 }
 \end{lstlisting}
