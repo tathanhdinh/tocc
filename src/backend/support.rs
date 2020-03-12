@@ -36,13 +36,14 @@ pub struct SimpleTypedConcreteValue<'a> {
 // DRAGON 6.3.4 Storage Layouts for Local Names
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AggregateType<'a> {
-	pub fields: Vec<(&'a str, Type)>,
+	pub fields: Vec<(&'a str, CType)>,
 }
 
 impl AggregateType<'_> {
 	pub fn field_offset(&self, field_name: &str) -> Option<usize> {
 		let mut os = 0usize;
 		for (fname, fty) in &self.fields {
+			let fty: Type = fty.into();
 			if *fname == field_name {
 				return Some(os);
 			} else {
@@ -52,13 +53,16 @@ impl AggregateType<'_> {
 		None
 	}
 
-	pub fn field_type(&self, field_name: &str) -> Option<Type> {
+	pub fn field_type(&self, field_name: &str) -> Option<CType> {
 		let (_, fty) = self.fields.iter().find(|(fname, _)| *fname == field_name)?;
 		Some(*fty)
 	}
 
 	pub fn bytes(&self) -> usize {
-		self.fields.iter().fold(0usize, |sum, (_, fty)| sum + fty.bytes() as usize)
+		self.fields.iter().fold(0usize, |sum, (_, fty)| {
+			let fty: Type = fty.into();
+			sum + fty.bytes() as usize
+		})
 	}
 }
 
@@ -67,7 +71,7 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 		// struct type definition: each declaration is a field declaration
 		let StructType { declarations, .. } = self;
 		let declarations = checked_unwrap_option!(declarations.as_ref());
-		let fields: Vec<(&str, Type)> = declarations
+		let fields: Vec<(&str, CType)> = declarations
 			.iter()
 			.map(|Declaration { specifier, declarator }| {
 				checked_if_let!(Some(Declarator { ident: Identifier(ident), .. }), declarator, {
@@ -79,10 +83,35 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CType {
 	Signed(Type),
 	Unsigned(Type),
+}
+
+impl Into<Type> for CType {
+	fn into(self) -> Type {
+		use CType::*;
+		match self {
+			Signed(ty) | Unsigned(ty) => ty,
+		}
+	}
+}
+
+impl Into<Type> for &CType {
+	fn into(self) -> Type {
+		use CType::*;
+		match self {
+			Signed(ty) | Unsigned(ty) => *ty,
+		}
+	}
+}
+
+impl CType {
+	pub fn bytes(&self) -> u32 {
+		let ty: Type = self.into();
+		ty.bytes()
+	}
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -134,8 +163,8 @@ pub enum SimpleTypedIdentifier<'a> {
 
 impl Into<CType> for &TypeSpecifier<'_> {
 	fn into(self) -> CType {
-		use TypeSpecifier::*;
 		use CType::*;
+		use TypeSpecifier::*;
 		match self {
 			CharTy => Signed(types::I8),
 			UCharTy => Unsigned(types::I8),
@@ -143,7 +172,8 @@ impl Into<CType> for &TypeSpecifier<'_> {
 			UShortTy => Unsigned(types::I16),
 			IntTy => Signed(types::I32),
 			UIntTy => Unsigned(types::I32),
-			LongTy | ULongTy => types::I64,
+			LongTy => Signed(types::I64),
+			ULongTy => Unsigned(types::I64),
 			_ => unsafe { unreachable_unchecked() },
 		}
 	}

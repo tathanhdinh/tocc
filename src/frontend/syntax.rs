@@ -4,7 +4,8 @@ use std::hint::unreachable_unchecked;
 use crate::error;
 
 const KEYWORDS: &'_ [&'_ str] = &[
-	"if", "else", "for", "while", "do", "unsigned", "char", "short", "int", "long", "return", "struct", "void",
+	"if", "else", "for", "while", "do", "unsigned", "char", "short", "int", "long", "return",
+	"struct", "void",
 ];
 
 #[derive(Clone, Debug)]
@@ -188,10 +189,14 @@ pub struct StructType<'a> {
 // C11: 6.2.5 Types
 #[derive(Clone, Debug)]
 pub enum TypeSpecifier<'a> {
-	CharTy, UCharTy,
-	ShortTy, UShortTy,
-	IntTy, UIntTy,
-	LongTy, ULongTy,
+	CharTy,
+	UCharTy,
+	ShortTy,
+	UShortTy,
+	IntTy,
+	UIntTy,
+	LongTy,
+	ULongTy,
 	StructTy(StructType<'a>),
 	VoidTy,
 }

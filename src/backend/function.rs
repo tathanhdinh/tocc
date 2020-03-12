@@ -35,7 +35,7 @@ use crate::{
 
 use super::support::{
 	evaluate_constant_arithmetic_expression, generate_random_partition, AggregateIdentifier,
-	AggregateType, ConcreteValue, EffectiveType, FunctionIdentifier, FunctionType,
+	AggregateType, CType, ConcreteValue, EffectiveType, FunctionIdentifier, FunctionType,
 	NameBindingEnvironment, PointerIdentifer, PrimitiveIdentifier, SimpleTypedConcreteValue,
 	SimpleTypedIdentifier, TypeBindingEnvironment,
 };
@@ -54,7 +54,8 @@ struct FunctionTranslator<'clif: 'tcx, 'tcx, B: Backend> {
 
 pub fn get_function_signature(
 	func_def: &'_ FunctionDefinition<'_>, pointer_ty: Type,
-) -> (Option<Type>, Vec<Type>) {
+) -> (Option<CType>, Vec<CType>) {
+	use CType::*;
 	use TypeSpecifier::*;
 
 	let FunctionDefinition { specifier, declarator: FunctionDeclarator { parameters, .. }, .. } =
@@ -75,7 +76,11 @@ pub fn get_function_signature(
 			if let Some(derived_decl) = derived {
 				match derived_decl {
 					// some pointer types
-					DerivedDeclarator::Pointer => pointer_ty,
+					DerivedDeclarator::Pointer => match specifier {
+						CharTy | ShortTy | IntTy | LongTy => Signed(pointer_ty),
+						UCharTy | UShortTy | UIntTy | LongTy => Unsigned(pointer_ty),
+						StructTy(_) | VoidTy => todo!(),
+					},
 				}
 			} else {
 				// non pointer types
@@ -324,7 +329,8 @@ fn declare_parameter_variables<'tcx>(
 						}
 					}
 				} else {
-					let new_var = declare_variable(fb, specifier.into(), Some(param_val));
+					let ty: CType = specifier.into();
+					let new_var = declare_variable(fb, ty.into(), Some(param_val));
 
 					name_env.bind(
 						var_name,
@@ -649,7 +655,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					match specifier {
 						VoidTy => semantically_unreachable!(),
 						_ => {
-							new_var_ty = specifier.into();
+							let new_var_cty: CType = specifier.into();
+							new_var_ty = new_var_cty.into();
 							new_var =
 								declare_variable(self.func_builder.get_mut(), new_var_ty, None);
 
@@ -657,7 +664,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 								var_name,
 								SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier {
 									ident: new_var,
-									ty: EffectiveType::PrimitiveTy(new_var_ty),
+									ty: EffectiveType::PrimitiveTy(new_var_cty),
 								}),
 							);
 						}
@@ -1133,10 +1140,13 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						let ident_val = self.use_var(*ident);
 						checked_if_let!(PointerTy(ty), ty, {
 							match ty.as_ref() {
-								PrimitiveTy(pty) => SimpleTypedConcreteValue {
-									val: ValueTy(self.load(pty.clone(), ident_val, 0)),
-									ty: ty.as_ref().clone(),
-								},
+								PrimitiveTy(pty) => {
+									let pty: Type = pty.into();
+									SimpleTypedConcreteValue {
+										val: ValueTy(self.load(pty, ident_val, 0)),
+										ty: ty.as_ref().clone(),
+									}
+								}
 
 								_ => todo!(),
 							}
@@ -1155,6 +1165,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		BinaryOperatorExpression { operator, lhs, rhs }: &'_ BinaryOperatorExpression<'tcx>,
 	) -> SimpleTypedConcreteValue<'tcx> {
 		use BinaryOperator::*;
+		use CType::*;
 		use ConcreteValue::*;
 		use EffectiveType::*;
 		use Expression::*;
@@ -1207,15 +1218,27 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					Multiplication => ValueTy(self.imul_imm(rhs_val, lhs_val)),
 
 					Division => {
-						let rhs_ty = self.value_type(rhs_val);
-						let lhs = self.iconst(rhs_ty, lhs_val);
-						ValueTy(self.idiv(lhs, rhs_val))
+						let ty = self.value_type(rhs_val);
+						let lhs = self.iconst(ty, lhs_val);
+						match rhs_ty {
+							PrimitiveTy(cty) => match cty {
+								Signed(_) => ValueTy(self.sdiv(lhs, rhs_val)),
+								Unsigned(_) => ValueTy(self.udiv(lhs, rhs_val)),
+							},
+							_ => semantically_unreachable!(),
+						}
 					}
 
 					Remainder => {
-						let rhs_ty = self.value_type(rhs_val);
-						let lhs = self.iconst(rhs_ty, lhs_val);
-						ValueTy(self.srem(lhs, rhs_val))
+						let ty = self.value_type(rhs_val);
+						let lhs = self.iconst(ty, lhs_val);
+						match rhs_ty {
+							PrimitiveTy(cty) => ValueTy(match cty {
+								Signed(_) => self.srem(lhs, rhs_val),
+								Unsigned(_) => self.urem(lhs, rhs_val),
+							}),
+							_ => semantically_unreachable!(),
+						}
 					}
 
 					Addition => match &rhs_ty {
@@ -1417,7 +1440,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 													let field_ty = checked_unwrap_option!(
 														aggre_ty.field_type(field_name)
 													);
-													let rhs_val = self.iconst(field_ty, rhs_val);
+													let rhs_val =
+														self.iconst(field_ty.into(), rhs_val);
 													self.stack_store(
 														rhs_val,
 														*ident,
@@ -1443,8 +1467,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 																);
 																let ident_val =
 																	self.use_var(*ident);
-																let rhs_val =
-																	self.iconst(field_ty, rhs_val);
+																let rhs_val = self.iconst(
+																	field_ty.into(),
+																	rhs_val,
+																);
 																self.store(
 																	rhs_val,
 																	ident_val,
@@ -1480,7 +1506,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				// let rhs_val = self.blur_value(rhs_val);
 				let val = match operator {
 					Multiplication => ValueTy(self.imul(lhs_val, rhs_val)),
-					Division => ValueTy(self.idiv(lhs_val, rhs_val)),
+					Division => ValueTy(self.sdiv(lhs_val, rhs_val)),
 					Remainder => ValueTy(self.srem(lhs_val, rhs_val)),
 
 					Addition => match (&lhs_ty, &rhs_ty) {
@@ -1546,12 +1572,13 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 										ident: lhs_ident,
 										ty: PrimitiveTy(ty),
 									}) => {
+										let ty: Type = ty.into();
 										let new_lhs_val = match operator {
-											Assignment => self.cast_value(*ty, rhs_val),
+											Assignment => self.cast_value(ty, rhs_val),
 											AdditionAssignment => self.iadd(lhs_val, rhs_val),
 											SubtractionAssignment => self.isub(lhs_val, rhs_val),
 											MultiplicationAssignment => self.imul(lhs_val, rhs_val),
-											DivisionAssignment => self.idiv(lhs_val, rhs_val),
+											DivisionAssignment => self.sdiv(lhs_val, rhs_val),
 											_ => semantically_unreachable!(),
 										};
 										self.def_var(*lhs_ident, new_lhs_val);
@@ -1707,8 +1734,9 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						let (_, fty) = checked_unwrap_option!(
 							aggre_ty.fields.iter().find(|(fname, _)| fname == field_name)
 						);
+						let fty: Type = fty.into();
 						SimpleTypedConcreteValue {
-							val: ValueTy(self.stack_load(*fty, *ident, offset as i32)),
+							val: ValueTy(self.stack_load(fty, *ident, offset as i32)),
 							ty: AggregateTy(aggre_ty.clone()),
 						}
 					})
@@ -1729,9 +1757,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 								);
 
 								let ident_val = self.use_var(*ident);
+								let fty: Type = fty.into();
 								SimpleTypedConcreteValue {
-									val: ValueTy(self.load(*fty, ident_val, offset as i32)),
-									ty: PrimitiveTy(*fty),
+									val: ValueTy(self.load(fty, ident_val, offset as i32)),
+									ty: PrimitiveTy(fty),
 								}
 							})
 						})
@@ -1769,7 +1798,9 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				// 	},
 				// 	call_conv: isa::CallConv::SystemV,
 				// };
-				let sig = masquerade_function_signature(return_ty, &param_ty, self.pointer_ty);
+				let ret_ty = return_ty.map(|ty| ty.into());
+				let param_ty: Vec<_> = param_ty.iter().map(|ty| ty.into()).collect();
+				let sig = masquerade_function_signature(ret_ty, &param_ty, self.pointer_ty);
 				let sig_ref = self.import_signature(&sig);
 
 				let arg_values: Vec<_> = arguments
@@ -1797,7 +1828,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					self.insert_indirect_call(sig_ref, callee_addr, &arg_values)
 				};
 
-				let ret_val = if let Some(ty) = return_ty {
+				let ret_val = if let Some(ty) = ret_ty {
 					let ret_val = self.inst_result(call);
 					ValueTy(checked_unwrap_option!(self.ireduce(ty, ret_val)))
 				} else {
@@ -1806,7 +1837,8 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 
 				SimpleTypedConcreteValue {
 					val: ret_val,
-					ty: if let Some(ty) = return_ty { PrimitiveTy(ty) } else { UnitTy },
+					// ty: if let Some(ty) = ret_ty { PrimitiveTy(ty) } else { UnitTy },
+					ty: if let Some(cty) = return_ty { PrimitiveTy(cty) } else { UnitTy },
 				}
 			}
 
@@ -2019,9 +2051,14 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	// 	self.blur_iadd(x, neg_y)
 	// }
 
-	fn idiv(&'_ self, x: Value, y: Value) -> Value {
+	fn sdiv(&'_ self, x: Value, y: Value) -> Value {
 		let (x, y) = self.normalize(x, y);
 		self.func_builder.borrow_mut().ins().sdiv(x, y)
+	}
+
+	fn udiv(&'_ self, x: Value, y: Value) -> Value {
+		let (x, y) = self.normalize(x, y);
+		self.func_builder.borrow_mut().ins().udiv(x, y)
 	}
 
 	fn idiv_imm(&'_ self, x: Value, n: impl Into<i64>) -> Value {
@@ -2031,6 +2068,11 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	fn srem(&'_ self, x: Value, y: Value) -> Value {
 		let (x, y) = self.normalize(x, y);
 		self.func_builder.borrow_mut().ins().srem(x, y)
+	}
+
+	fn urem(&'_ self, x: Value, y: Value) -> Value {
+		let (x, y) = self.normalize(x, y);
+		self.func_builder.borrow_mut().ins().urem(x, y)
 	}
 
 	fn srem_imm(&'_ self, x: Value, n: impl Into<i64>) -> Value {
