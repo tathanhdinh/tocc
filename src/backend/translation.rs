@@ -8,7 +8,7 @@ use crate::{
 		Declaration, ExternalDeclaration, FunctionDeclarator, FunctionDefinition, Identifier,
 		StructType, TranslationUnit, TypeSpecifier,
 	},
-	semantically_unreachable,
+	semantically_unreachable, disabled
 };
 
 use super::{

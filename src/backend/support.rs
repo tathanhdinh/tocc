@@ -83,7 +83,7 @@ impl<'a> Into<AggregateType<'a>> for &'_ StructType<'a> {
 	}
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CType {
 	Signed(Type),
 	Unsigned(Type),

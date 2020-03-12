@@ -393,7 +393,7 @@ impl<'a> SimpleType<'a> {
 		match ty {
 			VoidTy => Self::UnitTy,
 
-			CharTy | ShortTy | IntTy | LongTy => Self::PrimitiveTy(ty.into()),
+			CharTy | UCharTy | ShortTy | UShortTy | IntTy | UIntTy | LongTy | ULongTy => Self::PrimitiveTy(ty.into()),
 
 			StructTy(StructType { identifier, declarations }) => {
 				if let Some(declarations) = declarations {

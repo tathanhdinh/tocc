@@ -49,7 +49,7 @@ struct FunctionTranslator<'clif: 'tcx, 'tcx, B: Backend> {
 	name_env: NameBindingEnvironment<'tcx>,
 	type_env: TypeBindingEnvironment<'tcx>,
 	pointer_ty: Type,
-	return_ty: Option<Type>,
+	return_ty: Option<CType>,
 }
 
 pub fn get_function_signature(
@@ -78,7 +78,7 @@ pub fn get_function_signature(
 					// some pointer types
 					DerivedDeclarator::Pointer => match specifier {
 						CharTy | ShortTy | IntTy | LongTy => Signed(pointer_ty),
-						UCharTy | UShortTy | UIntTy | LongTy => Unsigned(pointer_ty),
+						UCharTy | UShortTy | UIntTy | ULongTy => Unsigned(pointer_ty),
 						StructTy(_) | VoidTy => todo!(),
 					},
 				}
@@ -99,15 +99,18 @@ pub fn get_function_signature(
 }
 
 fn masquerade_function_signature(
-	return_ty: Option<Type>, param_ty: &'_ [Type], topty: Type,
+	return_ty: Option<CType>, param_ty: &'_ [CType], topty: Type,
 ) -> Signature {
 	Signature {
 		params: param_ty
 			.iter()
-			.map(|ty| if disabled() { AbiParam::new(*ty) } else { AbiParam::new(topty) })
+			.map(|cty| {
+				let ty: Type = cty.into();
+				if disabled() { AbiParam::new(ty) } else { AbiParam::new(topty) }
+			})
 			.collect(),
 		returns: if let Some(return_ty) = return_ty {
-			vec![if disabled() { AbiParam::new(return_ty) } else { AbiParam::new(topty) }]
+			vec![if disabled() { AbiParam::new(return_ty.into()) } else { AbiParam::new(topty) }]
 		} else {
 			vec![]
 		},
@@ -116,7 +119,7 @@ fn masquerade_function_signature(
 }
 
 pub fn blur_function_signature(
-	return_ty: Option<Type>, param_ty: &'_ [Type], pointer_ty: Type, ctxt: &'_ mut Context,
+	return_ty: Option<CType>, param_ty: &'_ [CType], pointer_ty: Type, ctxt: &'_ mut Context,
 ) {
 	let sig = masquerade_function_signature(return_ty, param_ty, pointer_ty);
 	ctxt.func.signature = sig;
@@ -236,7 +239,7 @@ fn blur_value(fb: &'_ mut FunctionBuilder, val: Value) -> Value {
 }
 
 fn create_entry_block(
-	fb: &'_ mut FunctionBuilder, param_ty: &'_ [Type], pointer_ty: Type,
+	fb: &'_ mut FunctionBuilder, param_ty: &'_ [CType], pointer_ty: Type,
 ) -> Block {
 	let entry_block = if disabled() {
 		let entry_block = fb.create_block();
@@ -248,7 +251,7 @@ fn create_entry_block(
 
 		fb.switch_to_block(trampoline_block);
 		let mut param_vals = Vec::new();
-		for (i, ty) in param_ty.iter().enumerate() {
+		for (i, cty) in param_ty.iter().enumerate() {
 			let val = {
 				let val = fb.block_params(trampoline_block)[i];
 				// let val = blur_value(fb, val);
@@ -261,7 +264,7 @@ fn create_entry_block(
 
 				let ss_addr = fb.ins().stack_addr(pointer_ty, ss, 0);
 				let ss_addr = blur_value(fb as _, ss_addr);
-				fb.ins().load(*ty, MemFlags::new(), ss_addr, 0)
+				fb.ins().load(cty.into(), MemFlags::new(), ss_addr, 0)
 
 				// if ty.bytes() < pointer_ty.bytes() {
 				// 	let ss = fb.create_stack_slot(StackSlotData::new(
@@ -281,8 +284,8 @@ fn create_entry_block(
 		}
 
 		let entry_block = fb.create_block();
-		for ty in param_ty {
-			fb.append_block_param(entry_block, *ty);
+		for cty in param_ty {
+			fb.append_block_param(entry_block, cty.into());
 		}
 		fb.ins().jump(entry_block, &param_vals);
 		fb.seal_block(trampoline_block);
@@ -313,21 +316,33 @@ fn declare_parameter_variables<'tcx>(
 		match specifier {
 			VoidTy => todo!(),
 
-			CharTy | ShortTy | IntTy | LongTy => {
+			CharTy | UCharTy | ShortTy | UShortTy | IntTy | UIntTy | LongTy | ULongTy => {
 				if let Some(derived_decl) = derived {
-					match derived_decl {
-						DerivedDeclarator::Pointer => {
-							let new_var = declare_variable(fb, pointer_ty, Some(param_val));
+					if matches!(derived_decl, DerivedDeclarator::Pointer) {
+						let new_var = declare_variable(fb, pointer_ty, Some(param_val));
 
-							name_env.bind(
-								var_name,
-								SimpleTypedIdentifier::PointerIdent(PointerIdentifer {
-									ident: new_var,
-									ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))),
-								}),
-							);
-						}
+						name_env.bind(
+							var_name,
+							SimpleTypedIdentifier::PointerIdent(PointerIdentifer {
+								ident: new_var,
+								ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))),
+							}),
+						);
 					}
+
+				// match derived_decl {
+				// 	DerivedDeclarator::Pointer => {
+				// 		let new_var = declare_variable(fb, pointer_ty, Some(param_val));
+
+				// 		name_env.bind(
+				// 			var_name,
+				// 			SimpleTypedIdentifier::PointerIdent(PointerIdentifer {
+				// 				ident: new_var,
+				// 				ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))),
+				// 			}),
+				// 		);
+				// 	}
+				// }
 				} else {
 					let ty: CType = specifier.into();
 					let new_var = declare_variable(fb, ty.into(), Some(param_val));
@@ -344,21 +359,35 @@ fn declare_parameter_variables<'tcx>(
 
 			StructTy(StructType { identifier: Identifier(sname), .. }) => {
 				if let Some(derived_decl) = derived {
-					match derived_decl {
-						DerivedDeclarator::Pointer => {
-							let new_var = declare_variable(fb, pointer_ty, Some(param_val));
+					if matches!(derived_decl, DerivedDeclarator::Pointer) {
+						let new_var = declare_variable(fb, pointer_ty, Some(param_val));
 
-							let aggre_ty = checked_unwrap_option!(type_env.get(sname));
+						let aggre_ty = checked_unwrap_option!(type_env.get(sname));
 
-							name_env.bind(
-								var_name,
-								SimpleTypedIdentifier::PointerIdent(PointerIdentifer {
-									ident: new_var,
-									ty: PointerTy(Box::new(aggre_ty.clone())),
-								}),
-							);
-						}
+						name_env.bind(
+							var_name,
+							SimpleTypedIdentifier::PointerIdent(PointerIdentifer {
+								ident: new_var,
+								ty: PointerTy(Box::new(aggre_ty.clone())),
+							}),
+						);
 					}
+
+				// match derived_decl {
+				// 	DerivedDeclarator::Pointer => {
+				// 		let new_var = declare_variable(fb, pointer_ty, Some(param_val));
+
+				// 		let aggre_ty = checked_unwrap_option!(type_env.get(sname));
+
+				// 		name_env.bind(
+				// 			var_name,
+				// 			SimpleTypedIdentifier::PointerIdent(PointerIdentifer {
+				// 				ident: new_var,
+				// 				ty: PointerTy(Box::new(aggre_ty.clone())),
+				// 			}),
+				// 		);
+				// 	}
+				// }
 				} else {
 					todo!()
 				}
@@ -382,7 +411,7 @@ fn optimize_function(ctxt: &'_ mut Context) {
 }
 
 pub fn translate_function<'clif, 'tcx>(
-	func_def: &'tcx FunctionDefinition<'tcx>, return_ty: Option<Type>, param_ty: &'_ [Type],
+	func_def: &'tcx FunctionDefinition<'tcx>, return_ty: Option<CType>, param_ty: &'_ [CType],
 	pointer_ty: Type, ctxt: &'clif mut Context, module: &'clif mut Module<impl Backend>,
 	outer_name_env: &'_ NameBindingEnvironment<'tcx>,
 	outer_type_env: &'_ TypeBindingEnvironment<'tcx>,
@@ -436,7 +465,7 @@ fn declare_variable(
 impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	pub fn new(
 		func_builder: FunctionBuilder<'clif>, module: &'clif mut Module<B>,
-		return_ty: Option<Type>, name_env: NameBindingEnvironment<'tcx>,
+		return_ty: Option<CType>, name_env: NameBindingEnvironment<'tcx>,
 		outer_type_env: &'_ TypeBindingEnvironment<'tcx>,
 	) -> Self {
 		let func_builder = RefCell::new(func_builder);
@@ -627,7 +656,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 		use TypeSpecifier::*;
 
 		match specifier {
-			CharTy | ShortTy | IntTy | LongTy | VoidTy => {
+			CharTy | UCharTy | ShortTy | UShortTy | IntTy | UIntTy | LongTy | ULongTy | VoidTy => {
 				let Declarator { ident: Identifier(var_name), derived, initializer } =
 					checked_unwrap_option!(declarator.as_ref());
 
@@ -652,23 +681,39 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						}
 					}
 				} else {
-					match specifier {
-						VoidTy => semantically_unreachable!(),
-						_ => {
-							let new_var_cty: CType = specifier.into();
-							new_var_ty = new_var_cty.into();
-							new_var =
-								declare_variable(self.func_builder.get_mut(), new_var_ty, None);
+					if matches!(specifier, VoidTy) {
+						semantically_unreachable!()
+					} else {
+						let new_var_cty: CType = specifier.into();
+						new_var_ty = new_var_cty.into();
+						new_var = declare_variable(self.func_builder.get_mut(), new_var_ty, None);
 
-							self.name_env.bind(
-								var_name,
-								SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier {
-									ident: new_var,
-									ty: EffectiveType::PrimitiveTy(new_var_cty),
-								}),
-							);
-						}
+						self.name_env.bind(
+							var_name,
+							SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier {
+								ident: new_var,
+								ty: EffectiveType::PrimitiveTy(new_var_cty),
+							}),
+						);
 					}
+
+					// match specifier {
+					// 	VoidTy => semantically_unreachable!(),
+					// 	_ => {
+					// 		let new_var_cty: CType = specifier.into();
+					// 		new_var_ty = new_var_cty.into();
+					// 		new_var =
+					// 			declare_variable(self.func_builder.get_mut(), new_var_ty, None);
+
+					// 		self.name_env.bind(
+					// 			var_name,
+					// 			SimpleTypedIdentifier::PrimitiveIdent(PrimitiveIdentifier {
+					// 				ident: new_var,
+					// 				ty: EffectiveType::PrimitiveTy(new_var_cty),
+					// 			}),
+					// 		);
+					// 	}
+					// }
 				}
 
 				if let Some(initializer) = initializer.as_ref() {
@@ -935,7 +980,7 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 						let SimpleTypedConcreteValue { val, .. } = self.translate_expression(expr);
 						let return_ty = checked_unwrap_option!(self.return_ty);
 						match val {
-							ConstantTy(c) => self.iconst(return_ty, c),
+							ConstantTy(c) => self.iconst(return_ty.into(), c),
 							ValueTy(v) => v,
 							_ => todo!(),
 						}
@@ -1752,15 +1797,15 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 								let offset =
 									checked_unwrap_option!(aggre_ty.field_offset(field_name));
 
-								let (_, fty) = checked_unwrap_option!(
+								let (_, fcty) = checked_unwrap_option!(
 									aggre_ty.fields.iter().find(|(fname, _)| fname == field_name)
 								);
 
 								let ident_val = self.use_var(*ident);
-								let fty: Type = fty.into();
+								// let fty: Type = fcty.into();
 								SimpleTypedConcreteValue {
-									val: ValueTy(self.load(fty, ident_val, offset as i32)),
-									ty: PrimitiveTy(fty),
+									val: ValueTy(self.load(fcty.into(), ident_val, offset as i32)),
+									ty: PrimitiveTy(*fcty),
 								}
 							})
 						})
@@ -1798,9 +1843,9 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				// 	},
 				// 	call_conv: isa::CallConv::SystemV,
 				// };
-				let ret_ty = return_ty.map(|ty| ty.into());
-				let param_ty: Vec<_> = param_ty.iter().map(|ty| ty.into()).collect();
-				let sig = masquerade_function_signature(ret_ty, &param_ty, self.pointer_ty);
+				// let ret_ty = return_ty.map(|ty| ty.into());
+				// let param_ty: Vec<_> = param_ty.iter().map(|ty| ty.into()).collect();
+				let sig = masquerade_function_signature(return_ty, &param_ty, self.pointer_ty);
 				let sig_ref = self.import_signature(&sig);
 
 				let arg_values: Vec<_> = arguments
@@ -1808,10 +1853,10 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					.zip(param_ty.iter())
 					.map(|(arg, param_ty)| {
 						let SimpleTypedConcreteValue { val, .. } = self.translate_expression(arg);
-
+						let param_ty = param_ty.into();
 						let arg_val = match val {
-							ValueTy(val) => self.cast_value(*param_ty, val),
-							ConstantTy(val) => self.iconst(*param_ty, val),
+							ValueTy(val) => self.cast_value(param_ty, val),
+							ConstantTy(val) => self.iconst(param_ty, val),
 
 							_ => todo!(),
 						};
@@ -1828,9 +1873,9 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					self.insert_indirect_call(sig_ref, callee_addr, &arg_values)
 				};
 
-				let ret_val = if let Some(ty) = ret_ty {
+				let ret_val = if let Some(cty) = return_ty {
 					let ret_val = self.inst_result(call);
-					ValueTy(checked_unwrap_option!(self.ireduce(ty, ret_val)))
+					ValueTy(checked_unwrap_option!(self.ireduce(cty.into(), ret_val)))
 				} else {
 					Unit
 				};
@@ -1871,13 +1916,14 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 	fn translate_expression(
 		&'_ mut self, expr: &'_ Expression<'tcx>,
 	) -> SimpleTypedConcreteValue<'tcx> {
+		use CType::*;
 		use EffectiveType::*;
 		use Expression::*;
 
 		if let Some(val) = evaluate_constant_arithmetic_expression(expr) {
 			SimpleTypedConcreteValue {
 				val: ConcreteValue::ConstantTy(val),
-				ty: PrimitiveTy(types::I64),
+				ty: PrimitiveTy(Signed(types::I64)),
 			}
 		} else {
 			match expr {
