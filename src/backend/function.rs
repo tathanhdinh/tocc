@@ -663,23 +663,38 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 				let new_var;
 				let new_var_ty;
 				if let Some(derived_decl) = derived {
-					match derived_decl {
-						DerivedDeclarator::Pointer => {
-							new_var = declare_variable(
-								self.func_builder.get_mut(),
-								self.pointer_ty,
-								None,
-							);
-							new_var_ty = self.pointer_ty;
-							self.name_env.bind(
-								var_name,
-								PointerIdent(PointerIdentifer {
-									ident: new_var,
-									ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))),
-								}),
-							);
-						}
+					if matches!(derived_decl, DerivedDeclarator::Pointer) {
+						new_var =
+							declare_variable(self.func_builder.get_mut(), self.pointer_ty, None);
+						new_var_ty = self.pointer_ty;
+						self.name_env.bind(
+							var_name,
+							PointerIdent(PointerIdentifer {
+								ident: new_var,
+								ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))),
+							}),
+						);
+					} else {
+						todo!()
 					}
+
+				// match derived_decl {
+				// 	DerivedDeclarator::Pointer => {
+				// 		new_var = declare_variable(
+				// 			self.func_builder.get_mut(),
+				// 			self.pointer_ty,
+				// 			None,
+				// 		);
+				// 		new_var_ty = self.pointer_ty;
+				// 		self.name_env.bind(
+				// 			var_name,
+				// 			PointerIdent(PointerIdentifer {
+				// 				ident: new_var,
+				// 				ty: PointerTy(Box::new(PrimitiveTy(specifier.into()))),
+				// 			}),
+				// 		);
+				// 	}
+				// }
 				} else {
 					if matches!(specifier, VoidTy) {
 						semantically_unreachable!()
@@ -740,22 +755,37 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 					let struct_simple_ty = struct_simple_ty.to_owned();
 
 					if let Some(derived_decl) = derived {
-						match derived_decl {
-							DerivedDeclarator::Pointer => {
-								let new_var = declare_variable(
-									self.func_builder.get_mut(),
-									self.pointer_ty,
-									None,
-								);
-								self.name_env.bind(
-									var_name,
-									PointerIdent(PointerIdentifer {
-										ident: new_var,
-										ty: PointerTy(Box::new(struct_simple_ty)),
-									}),
-								);
-							}
+						if matches!(derived_decl, DerivedDeclarator::Pointer) {
+							let new_var = declare_variable(
+								self.func_builder.get_mut(),
+								self.pointer_ty,
+								None,
+							);
+							self.name_env.bind(
+								var_name,
+								PointerIdent(PointerIdentifer {
+									ident: new_var,
+									ty: PointerTy(Box::new(struct_simple_ty)),
+								}),
+							);
 						}
+
+					// match derived_decl {
+					// 	DerivedDeclarator::Pointer => {
+					// 		let new_var = declare_variable(
+					// 			self.func_builder.get_mut(),
+					// 			self.pointer_ty,
+					// 			None,
+					// 		);
+					// 		self.name_env.bind(
+					// 			var_name,
+					// 			PointerIdent(PointerIdentifer {
+					// 				ident: new_var,
+					// 				ty: PointerTy(Box::new(struct_simple_ty)),
+					// 			}),
+					// 		);
+					// 	}
+					// }
 					} else {
 						let struct_len =
 							checked_if_let!(AggregateTy(struct_ty), &struct_simple_ty, {
@@ -1549,9 +1579,21 @@ impl<'clif, 'tcx, B: Backend> FunctionTranslator<'clif, 'tcx, B> {
 			) => {
 				// let lhs_val = self.blur_value(lhs_val);
 				// let rhs_val = self.blur_value(rhs_val);
+				// TODO: see https://wiki.sei.cmu.edu/confluence/display/c/INT02-C.+Understand+integer+conversion+rules
 				let val = match operator {
 					Multiplication => ValueTy(self.imul(lhs_val, rhs_val)),
-					Division => ValueTy(self.sdiv(lhs_val, rhs_val)),
+
+					Division => {
+						if matches!(
+							(&lhs_ty, &rhs_ty),
+							(PrimitiveTy(Unsigned(_)), PrimitiveTy(Unsigned(_)))
+						) {
+							ValueTy(self.udiv(lhs_val, rhs_val))
+						} else {
+							ValueTy(self.sdiv(lhs_val, rhs_val))
+						}
+					}
+
 					Remainder => ValueTy(self.srem(lhs_val, rhs_val)),
 
 					Addition => match (&lhs_ty, &rhs_ty) {
