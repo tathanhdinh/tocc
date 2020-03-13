@@ -382,14 +382,14 @@ signed and unsigned integer.
 9  ret
 \end{lstlisting}
 \begin{lstlisting}[style={cranelift},caption={Signed and unsigned division (source)},label={lst:divisionclift}]
-  function u0:0(i32, i32) -> i32 system_v {
-  block0(x: i32, y: i32):
-    t = udiv x, y
-    z = sdiv x, y 
-    s = iadd v2, v3
-    return s
-  }
-  \end{lstlisting}
+function u0:0(i32, i32) -> i32 system_v {
+block0(x: i32, y: i32):
+  t = udiv x, y
+  z = sdiv x, y 
+  s = iadd v2, v3
+  return s
+}
+\end{lstlisting}
 It is captured in Retypd by a seemingly controversial rule:
 $x = y$ derives $\tau_{y} <\colon \tau_{x}$ (while with TIE $\tau_{y} = \tau_{x}$) which relaxes
 the types of $\mathtt{eax}$ in the data copy operations at line 1 and line 6. Retypd captures also
