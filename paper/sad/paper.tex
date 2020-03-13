@@ -365,11 +365,6 @@ of Van Emmerik (as with TIE and Retypd). Another instance is \emph{symbolic cons
 the register $\mathtt{rax}$ can be used both as an integer (of value $0$) and as a pointer
 (of value \texttt{NULL}); the instance is captured by Retypd only. 
 
-A more complex example is shown 
-in~\Cref{lst:divisionasm}, its source code is in~\Cref{lst:divisionc}. For reasoning it would 
-be better to look at the Cranelift IR  in~\Cref{lst:divisionclift} since the current type recovery methods work always 
-on some IR. As we can see $\mathtt{eax}$ (or $\mathtt{edi}$) behaves as it is of type
-signed and unsigned integer.
 \begin{lstlisting}[language={[x86masm]Assembler},caption={Signed and unsigned division},label={lst:divisionasm}]
 1  mov eax, edi   ; eax = x
 2  cdq
@@ -381,7 +376,14 @@ signed and unsigned integer.
 8  add eax, ecx
 9  ret
 \end{lstlisting}
-\begin{lstlisting}[style={cranelift},caption={Signed and unsigned division (source)},label={lst:divisionclift}]
+
+A more complex example is shown 
+in~\Cref{lst:divisionasm}, its source code is in~\Cref{lst:divisionc}. Since the binary type recovery 
+eventually works on some IR, to avoid unnecessary details when using the assembly code for type 
+constraint propagation reasoning, it would be better 
+to look at the cranelift IR version given in~\Cref{lst:divisionclift}. 
+% As we can see $\mathtt{eax}$ (or $\mathtt{edi}$) behaves as it is of type signed and unsigned integer.
+\begin{lstlisting}[style={cranelift},caption={Signed and unsigned division (cranelift)},label={lst:divisionclift}]
 function u0:0(i32, i32) -> i32 system_v {
 block0(x: i32, y: i32):
   t = udiv x, y
