@@ -107,11 +107,11 @@ example~\cite{caballero_type_2016} for a more completed list.
 
 The knowledge about types in general
 and particularly function signatures expands the attack surface since more analysis can be applied on 
-the programs, for example the dynamic binary instrumentation framework Pin~\cite{luk_pin_2005} provides a 
+the programs. For example, the dynamic binary instrumentation framework Pin~\cite{luk_pin_2005} provides a 
 method \texttt{RTN\_Replace} (Routine Replace) which allows to replace a function in the binary by 
 another function, but it requires that the new signature must be the same as the replaced 
 one, another instrumentation tool Dyninst~\cite{bernat_anywhere_2011} has a similar method 
-\texttt{replaceFunction}. Or the binary exploit generation for mimicry attacks 
+\texttt{replaceFunction}. For static analysis, the exploit generation for mimicry attacks 
 given in~\cite{kruegel_automating_2005} requires a capability of
 \begin{quote}
 ...tracking function calls together with the corresponding parameters.
@@ -187,7 +187,7 @@ current approaches on binary type inference and \emph{the problems they aim to s
 That gives some intuition about our goal and the techniques proposed to achieve this goal.
 %  which will be presented in the next section.
 
-From now on, unless otherwise stated, the type system is that of C. We assume that the binaries are
+From now on, unless otherwise stated, the (high-level) type system is that of C. We assume that the binaries are
 compiled by some C compiler from source codes, and binary type recovery means assigning C's types for
 low-level primitives. For illustration purpose, we use a pseudo-C syntax for low-level primitives
 (e.g. \texttt{\small mov rax, rdi} is expressed as $a = i$) but the concrete meaning is mostly direct from the context.
@@ -207,7 +207,7 @@ papers which are only published until later~\cite{noonan_polymorphic_2016,robbin
 
 We focus only on program semantics/type theoretical approaches, the research using machine learning~\cite{maier_typeminer_2019}
 or statistical language model~\cite{katz_estimating_2016} are out of scope of the paper.
-We omit the phase of variable/function detection, which is an essential step before
+We omit the phase of variable/function detection, which is a vital step before
 type recovering, more details on this subject can be referenced in~\cite{balakrishnan_divine_2007}.
 We avoid also difficulties in machine code disassembling, the binaries are assumed to be perfectly disassemblable.
 
@@ -342,6 +342,48 @@ supports recursive types, while TIE cannot.
 % There are also commercial tools, most notably Hex-Rays~\cite{noauthor_hex-rays_nodate} and
 % JEB~\cite{noauthor_jeb_nodate}, their methods are not published.
 
+
+\subsubsection*{Untyped decompilation}
+Some decompilers~\cite{noauthor_snowman_nodate,kroustek_retdec_2017} do not focus much on type analysis, 
+instead they focus on correct disassembling. That allows to 
+\emph{raise}~\cite{goodman_lifting_2018,yadavalli_raising_2019} the binary to an IR, then the type
+system of the IR is used directly to emulate high-level types. A notable example is the retargetable 
+decompiler RetDec~\cite{kroustek_retdec_2017} which raises binary codes to LLVM~\cite{lattner_llvm_2004}.
+To get the idea, let us consider the small piece of assembly code in~\Cref{lst:derefasm} (the original source code 
+is given in~\Cref{lst:derefc}).
+\begin{lstlisting}[language={[x86masm]Assembler},caption={Pointer increment then dereference},label={lst:derefasm}]
+1  mov eax, [rdi+0x4]
+2  ret
+\end{lstlisting}
+\begin{lstlisting}[style={c},caption={Pointer increment then dereference (source)},label={lst:derefc}]
+int foo(int *x) {
+  x += 1;
+  return *x;
+}
+\end{lstlisting}
+RetDec raises the assembly code into LLVM (\Cref{lst:derefllvm}), 
+then the decompilation result (\Cref{lst:derefdec}). As we can see, RetDec does not bother to detect whether $p$ is a pointer to $\mathtt{int}$, 
+it uses the System V ABI convention (the first parameter is passed via 
+\texttt{\small rdi}) to map $p$ to $\mathtt{i64}$, then casts expressions containing $p$ to the needed types.
+\begin{lstlisting}[language={LLVM}, caption={Pointer increment then dereference (LLVM)}, label={lst:derefllvm}]
+define i64 @inc_deref(i64 %p) {
+dec_label_pc_0:
+  %v1_0 = add i64 %p, 4
+  %v2_0 = inttoptr i64 %v1_0 to i32*
+  %v3_0 = load i32, i32* %v2_0, align 4
+  %v4_0 = zext i32 %v3_0 to i64
+  ret i64 %v4_0
+}
+\end{lstlisting}
+\begin{lstlisting}[style={c},caption={Pointer increment then dereference (decompilation)},label={lst:derefdec}]
+int64_t foo(int64_t p) {
+  return (int64_t)*(int32_t *)(p + 4);
+}
+\end{lstlisting}
+
+Though only giving poor results about types, the decompilation is always possible after 
+disassembling: the type system contains just basic types (being mapped from IR types) and casts.
+
 \subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
 One of the problems that all binary type recovery methods aim at is to capture the
@@ -354,7 +396,8 @@ casts used in the source code which subvert the type checking. There are many
 instances of low-level polymorphism.
 % (i.e. types assigned by the high-level type system).
 
-\subsubsection*{Captured instances} One of the first recognized forms is \emph{pointer arithmetic}; 
+% \subsubsection*{Captured instances} 
+One of the first recognized forms is \emph{pointer arithmetic}; 
 the expression $p + c$ where $p$ is a pointer and $c$ is some constant, may be of type $\tau_{p}$ (same type with the pointer
 $p$) or just an unknown pointer type $\tau_{\alpha}$. This instance is captured by the type system
 of Van Emmerik (as with TIE and Retypd). Another instance is \emph{symbolic constants}, e.g. after being reset
@@ -376,27 +419,42 @@ the register $\mathtt{rax}$ can be used both as an integer (of value $0$) and as
 8  add eax, ecx
 9  ret
 \end{lstlisting}
-
-A more complex example is shown 
-in~\Cref{lst:divisionasm}, its source code is in~\Cref{lst:divisionc}. Since the binary type recovery 
-eventually works on some IR, to avoid unnecessary details when using the assembly code for type 
-constraint propagation reasoning, it would be better 
-to look at the cranelift IR version given in~\Cref{lst:divisionclift}. 
-% As we can see $\mathtt{eax}$ (or $\mathtt{edi}$) behaves as it is of type signed and unsigned integer.
-\begin{lstlisting}[style={cranelift},caption={Signed and unsigned division (cranelift)},label={lst:divisionclift}]
-function u0:0(i32, i32) -> i32 system_v {
-block0(x: i32, y: i32):
-  t = udiv x, y
-  z = sdiv x, y 
-  s = iadd v2, v3
+\begin{lstlisting}[style={cranelift},mathescape=true,caption={Signed and unsigned division (cranelift)},label={lst:divisionclift}]
+function u0:0($\tau_{x}$, $\tau_{y}$) -> $\tau$ {
+block0(x: $\tau_{x}$, y: $\tau_{y}$):
+  z = sdiv x, y
+  t = udiv x, y 
+  s = iadd z, t
   return s
 }
 \end{lstlisting}
-It is captured in Retypd by a seemingly controversial rule:
-$x = y$ derives $\tau_{y} <\colon \tau_{x}$ (while with TIE $\tau_{y} = \tau_{x}$) which relaxes
-the types of $\mathtt{eax}$ in the data copy operations at line 1 and line 6. Retypd captures also
-another kind of low-level polymorphism called \emph{physical subtyping}~\cite{siff_coping_1999},
-which is layout-safe casting between structs.
+
+A more complex instance is \emph{incompatible types}, an example is given in~\Cref{lst:divisionasm} 
+(see~\Cref{lst:divisionc} for the source code). To avoid unnecessary details when using the assembly 
+code for type analysis, it would be better to look at the cranelift IR version given in~\Cref{lst:divisionclift} 
+(since the binary type recovery eventually works on some IR).
+% As we can see $\mathtt{eax}$ (or $\mathtt{edi}$) behaves as it is of type signed and unsigned integer.
+Type constraints for $x$ and $y$ can be derived in a traditional way, for example with $x$
+\begin{equation*}
+  \frac{\vdash \tau_{x} <\colon \mathtt{i32} \medspace (\text{since} \medspace \mathtt{sdiv}) \quad \vdash \tau_{x} <\colon \mathtt{u32} \medspace (\text{since} \medspace \mathtt{udiv})}
+       {\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}}
+\end{equation*}
+TIE interprets $\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}$ as $x \in \left[0, 2^{31}-1\right]$, 
+which is not a correct constraint; while Retypd uses \emph{union} for the meet 
+$\mathtt{i32} \sqcap \mathtt{u32}$, which is a reasonable result.
+% This situation is captured in Retypd by a seemingly controversial rule:
+% $\alpha = \beta$ derives $\tau_{\beta} <\colon \tau_{\alpha}$ 
+% (while with TIE $\tau_{\alpha} = \tau_{\beta}$) which relaxes the type of $x$ in data copy 
+% operations (note that each $x$ in $\mathtt{udiv}$ and $\mathtt{sdiv}$ is actually a copy of the original 
+% argument $x$)
+% \begin{align*}
+%   \tau_{x_{s}} <\colon \mathtt{i32} &\quad \tau_{x_{s}} <\colon \tau_{x} \\
+%   \tau_{x_{u}} <\colon \mathtt{u32} &\quad \tau_{x_{u}} <\colon \tau_{x}
+% \end{align*}
+%  at line 1 and line 6. 
+% Retypd captures also
+% another kind of low-level polymorphism called \emph{physical subtyping}~\cite{siff_coping_1999},
+% which is layout-safe casting between structs.
 \begin{lstlisting}[style={c},caption={Signed and unsigned division (source)},label={lst:divisionc}]
 int foo(int x, int y) {
   int z = x / y;
@@ -405,27 +463,31 @@ int foo(int x, int y) {
 }
 \end{lstlisting}
 
-But the problem is that there are also many instances which are completely computational
-(i.e. beyond which a set of limited type propagation rules can reach), they
-are generated either \raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {1}}} by the compiler after
-the type checking, thus independent with the high-level type system (type erasure);
-or \raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {2}}} by casting, thus bypass the type system.
-In summary, there exist always instances that no high-level type system, among the ones discussed
-above, can capture. To end the discussion about low-level polymorphism, let us look at the following expression
-\begin{equation*}
-  (\mathtt{void} *)((\mathtt{uintptr\_t})p + \mathtt{PAGESIZE} - 1 \& \sim(\mathtt{PAGESIZE} - 1))
-\end{equation*}
-which is used to roundup a pointer to a page boundary~\cite{noauthor_mprotect_nodate} before
-passing to $\mathtt{mprotect}$.
-The pointer $p$ is cast to use as an integer, but the value of the expression
-is cast back as a pointer. All previously discussed binary type recovery methods have difficulties in dealing with this
-expression.
+In general, whenever there are conflicts between types, Retypd can use union to combine them. This 
+technique is similar to the type casting approach used extensively by untyped decompilers 
+discussed above.
+
+% But the problem is that there are also many instances which are completely computational
+% (i.e. beyond which a set of limited type propagation rules can reach), they
+% are generated either \raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {1}}} by the compiler after
+% the type checking, thus independent with the high-level type system (type erasure);
+% or \raisebox{.5pt}{\textcircled{\raisebox{-.9pt} {2}}} by casting, thus bypass the type system.
+% In summary, there exist always instances that no high-level type system, among the ones discussed
+% above, can capture. To end the discussion about low-level polymorphism, let us look at the following expression
+% \begin{equation*}
+%   (\mathtt{void} *)((\mathtt{uintptr\_t})p + \mathtt{PAGESIZE} - 1 \& \sim(\mathtt{PAGESIZE} - 1))
+% \end{equation*}
+% which is used to roundup a pointer to a page boundary~\cite{noauthor_mprotect_nodate} before
+% passing to $\mathtt{mprotect}$.
+% The pointer $p$ is cast to use as an integer, but the value of the expression
+% is cast back as a pointer. All previously discussed binary type recovery methods have difficulties in dealing with this
+% expression.
 
 \section{Type flattening}
 \noindent
-In this section, we present our proposal for type flattening notion and techniques used in
-our obfuscating compiler \emph{uCc} to obtain that notion. We
-focus only on obfuscating scalar types (pointers, integers, but not floats), supporting aggregate types
+In this section, we present our proposal for the notion of type flattening obfuscation and techniques 
+used in \emph{uCc} to obtain that notion. We focus only on scalar types (pointers, integers, 
+but not floats), and function signatures where parameters are scalar types; supporting aggregate types
 (e.g. struct, nested struct) is still the ongoing work.
 
 % Basically, our proposal for type obfuscation and bypassing binary type inference is based on the notion of
@@ -433,6 +495,8 @@ focus only on obfuscating scalar types (pointers, integers, but not floats), sup
 
 \subsection{Notion}\label{subsec:typeflatteningnotion}
 \noindent
+Suppose that there is a subtype lattice with $\top$ and $\bot$, and an 
+
 The type recovery approaches proposed different techniques to deal with the problem of
 low-level polymorphism, but a common point
 % of type recovery techniques
