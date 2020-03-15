@@ -381,8 +381,8 @@ int64_t foo(int64_t p) {
 }
 \end{lstlisting}
 
-Though only giving poor results about types, the decompilation is always possible after 
-disassembling: the type system contains just basic types (being mapped from IR types) and casts.
+Though only giving poor results about types, this approach has advantages: the decompilation is always possible after 
+disassembling, the type system contains just basic types (being mapped from IR types) and casts.
 
 \subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
@@ -397,7 +397,7 @@ instances of low-level polymorphism.
 % (i.e. types assigned by the high-level type system).
 
 % \subsubsection*{Captured instances} 
-One of the first recognized forms is \emph{pointer arithmetic}; 
+One of the first recognized instances is \emph{pointer arithmetic}; 
 the expression $p + c$ where $p$ is a pointer and $c$ is some constant, may be of type $\tau_{p}$ (same type with the pointer
 $p$) or just an unknown pointer type $\tau_{\alpha}$. This instance is captured by the type system
 of Van Emmerik (as with TIE and Retypd). Another instance is \emph{symbolic constants}, e.g. after being reset
@@ -429,6 +429,7 @@ block0(x: $\tau_{x}$, y: $\tau_{y}$):
 }
 \end{lstlisting}
 
+\subsubsection*{Union}
 A more complex instance is \emph{incompatible types}, an example is given in~\Cref{lst:divisionasm} 
 (see~\Cref{lst:divisionc} for the source code). To avoid unnecessary details when using the assembly 
 code for type analysis, it would be better to look at the cranelift IR version given in~\Cref{lst:divisionclift} 
@@ -463,9 +464,12 @@ int foo(int x, int y) {
 }
 \end{lstlisting}
 
-In general, whenever there are conflicts between types, Retypd can use union to combine them. This 
-technique is similar to the type casting approach used extensively by untyped decompilers 
-discussed above.
+In summary, incompatible types are combined using union. This technique is actually similar to the type casting 
+approach of untyped decompilers discussed above.
+
+% In general, whenever there are conflicts between types, Retypd can use union to combine them. This 
+% technique is similar to the type casting approach used extensively by untyped decompilers 
+% discussed above.
 
 % But the problem is that there are also many instances which are completely computational
 % (i.e. beyond which a set of limited type propagation rules can reach), they
@@ -495,6 +499,8 @@ but not floats), and function signatures where parameters are scalar types; supp
 
 \subsection{Notion}\label{subsec:typeflatteningnotion}
 \noindent
+Here we define a simple type system with subtyping 
+
 Suppose that there is a subtype lattice with $\top$ and $\bot$, and an 
 
 The type recovery approaches proposed different techniques to deal with the problem of
