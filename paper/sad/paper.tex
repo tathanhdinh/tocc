@@ -442,7 +442,8 @@ Type constraints for $x$ and $y$ can be derived in a traditional way, for exampl
 \end{equation*}
 TIE interprets $\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}$ as $x \in \left[0, 2^{31}-1\right]$, 
 which is not a correct constraint; while Retypd uses \emph{union} for the meet 
-$\mathtt{i32} \sqcap \mathtt{u32}$, which is a reasonable result.
+$\mathtt{i32} \sqcap \mathtt{u32}$, which is a reasonable result. Actually, using union to combine 
+incompatible types is similar to the type casting approach of untyped decompilers discussed above.
 % This situation is captured in Retypd by a seemingly controversial rule:
 % $\alpha = \beta$ derives $\tau_{\beta} <\colon \tau_{\alpha}$ 
 % (while with TIE $\tau_{\alpha} = \tau_{\beta}$) which relaxes the type of $x$ in data copy 
@@ -463,9 +464,14 @@ int foo(int x, int y) {
   return z + t;
 }
 \end{lstlisting}
+The illustrative assembly code and cranelift IR show also that in low-level, data copy does not
+always result in \emph{type copy}: two identical values may have different types. For example, 
+the register \texttt{\small eax} at line 1 and line 6 in~\Cref{lst:divisionasm} are two identical copies of 
+the original argument $x$, but of different types.
 
-In summary, incompatible types are combined using union. This technique is actually similar to the type casting 
-approach of untyped decompilers discussed above.
+
+% In summary, incompatible types are combined using union. This technique is actually similar to the type casting 
+% approach of untyped decompilers discussed above.
 
 % In general, whenever there are conflicts between types, Retypd can use union to combine them. This 
 % technique is similar to the type casting approach used extensively by untyped decompilers 
@@ -489,17 +495,51 @@ approach of untyped decompilers discussed above.
 
 \section{Type flattening}
 \noindent
-In this section, we present our proposal for the notion of type flattening obfuscation and techniques 
-used in \emph{uCc} to obtain that notion. We focus only on scalar types (pointers, integers, 
-but not floats), and function signatures where parameters are scalar types; supporting aggregate types
-(e.g. struct, nested struct) is still the ongoing work.
+In this section, we present the notion of type flattening obfuscation and techniques 
+used in \emph{uCc} to obtain that notion. We focus only on scalar types (pointer, integral, 
+but not float nor packed), and function signatures where parameters and return are of scalar types; supporting aggregate types
+(e.g. struct, nested struct) is still the ongoing work. From now on, unless otherwise stated, 
+we assume that the binaries follow the System V ABI for AMD64 architecture~\cite{lu_system_nodate}.
 
 % Basically, our proposal for type obfuscation and bypassing binary type inference is based on the notion of
 % \emph{type flattening} and the technique of corrupting the \emph{data-flow}, which are presented as follows.
 
 \subsection{Notion}\label{subsec:typeflatteningnotion}
 \noindent
-Here we define a simple type system with subtyping 
+To avoid some ambiguities, we introduce a simple type system with subtyping upon this the type 
+flattening will be expressed. Let $\mathcal{P}$ denote a finite set of primitive type constants, each element
+of $\mathcal{P}$ is either of form $\mathtt{i}N$ (for signed types) or $\mathtt{u}N$ (for unsigned types):
+\begin{equation*}
+  P = \lbrace \mathtt{i}N, \mathtt{u}N \mid \mathtt{N} = 8,16,32,64 \rbrace
+\end{equation*}
+The function $\mathtt{sizeof}$ computes the size in bytes of type constants, 
+e.g. $\mathtt{sizeof}(\mathtt{i}32) = 4$. The unary type constructor $\mathtt{ptr}$ defines pointer types
+over primitive types, e.g. $\mathtt{ptr}(\mathtt{i}8)$ is a pointer to some value of type $\mathtt{i}8$.
+The function $\mathtt{sizeof}$ is extended for pointer types, though $\mathtt{sizeof(\tau)} = 8$ for
+any pointer type $\tau$. The binary type constructor $\mathtt{union}$ defines a new union type for 
+two types of the same size, the $\mathtt{sizeof}$ function is extended also for union types:
+\begin{equation*}
+  \mathtt{sizeof}(\mathtt{union}(\tau_{x}, \tau_{y})) = \mathtt{sizeof}(\tau_{x}) = \mathtt{sizeof}(\tau_{y})
+\end{equation*}
+We extend $\mathtt{union}$ to accept multiple type variables of the same size, also $\mathtt{union}$ has 
+the following properties:
+\begin{align*}
+  \mathtt{union}(\tau_{x}, \tau_{y}) &= \mathtt{union}(\tau_{y}, \tau_{x}) & \text{symm.} \\
+  \mathtt{union}(\tau_{x}, \tau_{y}, \tau_{z}) &= \mathtt{union}(\mathtt{union}(\tau_{x}, \tau_{y}), \tau_{z}) & \\
+  &= \mathtt{union}(\tau_{x}, \mathtt{union}(\tau_{y}, \tau_{z})) & \text{assoc.}
+\end{align*}
+The constructor $\mathtt{ptr}$ is extended to cover union types, naturally the size of a pointer to 
+union is $8$.
+The binary type constructor $\to$ defines a new function type of some return and parameter types, 
+i.e. if some function $f \colon \tau_{x} \to \tau_{y}$ then $f$ is of type $\to(\tau_{x}, \tau_{y})$.
+For typing functions of multiple parameters, we need an implicit product type constructor $()$,
+e.g. if $f \colon \tau_{x} \to (\tau_{y}, \tau_{z})$ then $f$ is of type $\to(\tau_{x}, (\tau_{y}, \tau_{z}))$.
+For simplification, we limit that $f$ is only defined over primitives, pointers of primitives, and 
+unions of primitives.
+
+\subsubsection*{Subtyping}
+
+$\mathtt{union}$ is symmetric, i.e. $\mathtt{union}(\tau_{x}, \tau_{y}) = \mathtt{union}(\tau_{y}, \tau_{x})$
 
 Suppose that there is a subtype lattice with $\top$ and $\bot$, and an 
 
