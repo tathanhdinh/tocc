@@ -442,8 +442,9 @@ Type constraints for $x$ and $y$ can be derived in a traditional way, for exampl
 \end{equation*}
 TIE interprets $\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}$ as $x \in \left[0, 2^{31}-1\right]$, 
 which is not a correct constraint; while Retypd uses \emph{union} for the meet 
-$\mathtt{i32} \sqcap \mathtt{u32}$, which is a reasonable result. Actually, using union to combine 
-incompatible types is similar to the type casting approach of untyped decompilers discussed above.
+$\mathtt{i32} \sqcap \mathtt{u32}$, which is a reasonable result. Actually, the technique of using 
+union to combine incompatible types is \emph{type punning}, another approach is \emph{type casting} 
+which is used by untyped decompilers discussed above.
 % This situation is captured in Retypd by a seemingly controversial rule:
 % $\alpha = \beta$ derives $\tau_{\beta} <\colon \tau_{\alpha}$ 
 % (while with TIE $\tau_{\alpha} = \tau_{\beta}$) which relaxes the type of $x$ in data copy 
@@ -464,8 +465,9 @@ int foo(int x, int y) {
   return z + t;
 }
 \end{lstlisting}
-The illustrative assembly code and cranelift IR show also that in low-level, data copy does not
-always result in \emph{type copy}: two identical values may have different types. For example, 
+The illustrative assembly code and cranelift IR show also a fact that in low-level, 
+\emph{data copy does not always result in type copy}: two identical values 
+may have different types. For example, 
 the register \texttt{\small eax} at line 1 and line 6 in~\Cref{lst:divisionasm} are two identical copies of 
 the original argument $x$, but of different types.
 
@@ -508,7 +510,8 @@ we assume that the binaries follow the System V ABI for AMD64 architecture~\cite
 \noindent
 To avoid some ambiguities, we introduce a simple type system with subtyping upon this the type 
 flattening will be expressed. Let $\mathcal{P}$ denote a finite set of primitive type constants, each element
-of $\mathcal{P}$ is either of form $\mathtt{i}N$ (for signed types) or $\mathtt{u}N$ (for unsigned types):
+of $\mathcal{P}$ is either of form $\mathtt{i}N$ (for signed types) or $\mathtt{u}N$ 
+(for unsigned types), where $N$ is the size in bits of the type:
 \begin{equation*}
   P = \lbrace \mathtt{i}N, \mathtt{u}N \mid \mathtt{N} = 8,16,32,64 \rbrace
 \end{equation*}
@@ -521,25 +524,57 @@ two types of the same size, the $\mathtt{sizeof}$ function is extended also for 
 \begin{equation*}
   \mathtt{sizeof}(\mathtt{union}(\tau_{x}, \tau_{y})) = \mathtt{sizeof}(\tau_{x}) = \mathtt{sizeof}(\tau_{y})
 \end{equation*}
+% Naturally, $\mathtt{union}$ is idempotent, i.e. $\mathtt{union}(\tau_{x}, \tau_{x}) = \tau_{x}$.
 We extend $\mathtt{union}$ to accept multiple type variables of the same size, also $\mathtt{union}$ has 
 the following properties:
 \begin{align*}
+  \mathtt{union}(\tau_{x}, \tau_{x}) &= \tau_{x} & \text{idem.} \\
   \mathtt{union}(\tau_{x}, \tau_{y}) &= \mathtt{union}(\tau_{y}, \tau_{x}) & \text{symm.} \\
   \mathtt{union}(\tau_{x}, \tau_{y}, \tau_{z}) &= \mathtt{union}(\mathtt{union}(\tau_{x}, \tau_{y}), \tau_{z}) & \\
   &= \mathtt{union}(\tau_{x}, \mathtt{union}(\tau_{y}, \tau_{z})) & \text{assoc.}
 \end{align*}
-The constructor $\mathtt{ptr}$ is extended to cover union types, naturally the size of a pointer to 
-union is $8$.
-The binary type constructor $\to$ defines a new function type of some return and parameter types, 
-i.e. if some function $f \colon \tau_{x} \to \tau_{y}$ then $f$ is of type $\to(\tau_{x}, \tau_{y})$.
-For typing functions of multiple parameters, there is an implicit product type constructor $()$,
-e.g. if $f \colon \tau_{x} \to (\tau_{y}, \tau_{z})$ then $f$ is of type $\to(\tau_{x}, (\tau_{y}, \tau_{z}))$.
-For simplification, we limit that $f$ is only defined over primitives, pointers of primitives, and 
-unions of primitives. It may worth to note that $\mathtt{union}$ is not defined for functional types.
+The constructor $\mathtt{ptr}$ is extended to cover union types, naturally the size of a union pointer is $8$.
+The binary type constructor $\to$ defines a new function type of some return and parameter types. 
+We use the familiar infix notation $\tau_{x} \to \tau_{y}$ instead of $\to(\tau_{x}, \tau_{y})$ for
+typing a function of return type $\tau_{x}$ and parameter type $\tau_{y}$.
+% i.e. if some function $f \colon \tau_{x} \to \tau_{y}$ then $f$ is of type $\to(\tau_{x}, \tau_{y})$.
+For functions of multiple parameters, there is an implicit product type constructor $()$,
+% e.g. if $f \colon \tau_{x} \to (\tau_{y}, \tau_{z})$ then $f$ is of type 
+whose meaning is direct from the context,
+e.g. $\tau_{x} \to (\tau_{y}, \tau_{z})$.
+% for function of return type $\tau_{x}$ and having two parameters
+% of types $\tau_{y}$ and $\tau_{z}$.
+For simplification, we limit that $\to$ is only defined over primitives, pointers of primitives, and 
+unions of primitives, i.e. a function cannot take return or any parameter as function types or 
+function pointer types. It may worth to note that $\mathtt{union}$ and $\mathtt{size}$ are not
+defined for function types.
 
 \subsubsection*{Subtyping}
+For any type $\tau_{x}$ and $\tau_{y}$ where $\mathtt{union}(\tau_{x}, \tau_{y})$ is defined (let 
+denote it $\tau$), then $\tau_{x} <\colon \tau$ and $\tau_{y} <\colon \tau$ (see also~\Cref{fig:unionsupertype}).
+\begin{figure}[h]
+  \centering
+  \begin{tikzcd}
+    & \mathtt{union}(\tau_{x}, \tau_{y}) \arrow{dl}[sloped,above]{<\colon} \arrow{dr}[sloped, above]{\colon>} & \\
+    \tau_{x} & & \tau_{y}
+  \end{tikzcd}
+  \caption{Union as supertype}
+  \label{fig:unionsupertype}
+\end{figure}
+The subtype relation between function types are defined in the traditional way, e.g.
+\begin{equation*}
+  \frac{\tau'_{x} <\colon \tau_{x} \quad \tau_{y} <\colon \tau'_{y}}
+       {\tau_{x} \to \tau_y <\colon \tau'_{x} \to \tau'_{y}}
+\end{equation*}
 
-$\mathtt{union}$ is symmetric, i.e. $\mathtt{union}(\tau_{x}, \tau_{y}) = \mathtt{union}(\tau_{y}, \tau_{x})$
+% \begin{align*}
+%   \tau_{x} <\colon \mathtt{union}(\tau_{x}, \tau_{y}) \\
+%   \tau_{y} <\colon \mathtt{union}(\tau_{x}, \tau_{y})
+% \end{align*}
+
+
+
+% $\mathtt{union}$ is symmetric, i.e. $\mathtt{union}(\tau_{x}, \tau_{y}) = \mathtt{union}(\tau_{y}, \tau_{x})$
 
 Suppose that there is a subtype lattice with $\top$ and $\bot$, and an 
 
