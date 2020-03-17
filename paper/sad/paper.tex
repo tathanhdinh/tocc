@@ -506,7 +506,7 @@ we assume that the binaries follow the System V ABI for AMD64 architecture~\cite
 % Basically, our proposal for type obfuscation and bypassing binary type inference is based on the notion of
 % \emph{type flattening} and the technique of corrupting the \emph{data-flow}, which are presented as follows.
 
-\subsection{Notion}\label{subsec:typeflatteningnotion}
+\subsection{Type system}\label{subsec:typeflatteningnotion}
 \noindent
 To avoid some ambiguities, we introduce a simple type system with subtyping upon this the type 
 flattening will be expressed. Let $\mathcal{P}$ denote a finite set of primitive type constants, each element
@@ -533,7 +533,7 @@ the following properties:
   \mathtt{union}(\tau_{x}, \tau_{y}, \tau_{z}) &= \mathtt{union}(\mathtt{union}(\tau_{x}, \tau_{y}), \tau_{z}) & \\
   &= \mathtt{union}(\tau_{x}, \mathtt{union}(\tau_{y}, \tau_{z})) & \text{assoc.}
 \end{align*}
-The constructor $\mathtt{ptr}$ is extended to cover union types, naturally the size of a union pointer is $8$.
+% The constructor $\mathtt{ptr}$ is extended to cover union types, naturally the size of a union pointer is $8$.
 The binary type constructor $\to$ defines a new function type of some return and parameter types. 
 We use the familiar infix notation $\tau_{x} \to \tau_{y}$ instead of $\to(\tau_{x}, \tau_{y})$ for
 typing a function of return type $\tau_{x}$ and parameter type $\tau_{y}$.
@@ -561,7 +561,7 @@ denote it $\tau$), then $\tau_{x} <\colon \tau$ and $\tau_{y} <\colon \tau$ (see
   \caption{Union as supertype}
   \label{fig:unionsupertype}
 \end{figure}
-The subtype relation between function types are defined in the traditional way, e.g.
+The subtype relation between function types are defined in the traditional way:
 \begin{equation*}
   \frac{\tau'_{x} <\colon \tau_{x} \quad \tau_{y} <\colon \tau'_{y}}
        {\tau_{x} \to \tau_y <\colon \tau'_{x} \to \tau'_{y}}
