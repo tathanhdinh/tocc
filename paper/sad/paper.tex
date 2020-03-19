@@ -100,7 +100,7 @@ objects~\cite{mycroft_type-based_1999, van_emmerik_static_2007}. This is the res
 research papers~\cite{lee_tie_2011,elwazeer_scalable_2013,robbins_minx_2016,noonan_polymorphic_2016},
 and the killer feature of commercial~\cite{noauthor_hex-rays_nodate,noauthor_jeb_nodate}
 as well as open source~\cite{noauthor_ghidra_nodate} binary code analysis tools. Beside decompilation,
-types and particularly \emph{function signatures} are also essential in numerous applications: 
+types and particularly \emph{function signatures} are also crucial in numerous applications: 
 static and dynamic binary rewriting~\cite{bernat_anywhere_2011,anand_compiler-level_2013}, 
 binary raising~\cite{yadavalli_raising_2019,goodman_lifting_2018}..., see for
 example~\cite{caballero_type_2016} for a more completed list.
@@ -195,10 +195,10 @@ low-level primitives. For illustration purpose, we use a pseudo-C syntax for low
 \subsection{Brief history}
 \noindent
 A broad survey for research on binary type recovery until 2015 is~\cite{caballero_type_2016}, but it sustains a storage point of view bias: types are attached
-always with physical storage primitives (e.g. registers, memory), there are no essential differences between types and
-data structures, so are the techniques to recover them. Actually, types are logical compile-time constraints, they
-may or may not have storage imprints. An example is C's \emph{type qualifier} (e.g.
-\texttt{\small const}, \texttt{\small volatile}), and in general any
+always with physical storage primitives (e.g. registers, memory), there are no essential differences 
+between types and physical data structures, so are the techniques to recover them. Actually, types are 
+logical compile-time constraints, they may or may not have storage imprints. An example is C's 
+type qualifier (\texttt{\small const}, \texttt{\small volatile}), and in general any
 \emph{refinement type} should not leave storage traces, the same thing with generics. More concretely, as
 we will present in the section, the \emph{low-level polymorphism} is a specific problem that binary type
 recovery techniques have to deal with.
@@ -345,7 +345,7 @@ supports recursive types, while TIE cannot.
 
 \subsubsection*{Untyped decompilation}
 Some decompilers~\cite{noauthor_snowman_nodate,kroustek_retdec_2017} do not focus much on type analysis, 
-instead they focus on correct disassembling. That allows to 
+instead they focus on correct disassembling and high-level control structures recovering. That allows to 
 \emph{raise}~\cite{goodman_lifting_2018,yadavalli_raising_2019} the binary to an IR, then the type
 system of the IR is used directly to emulate high-level types. A notable example is the retargetable 
 decompiler RetDec~\cite{kroustek_retdec_2017} which raises binary codes to LLVM~\cite{lattner_llvm_2004}.
@@ -381,8 +381,8 @@ int64_t foo(int64_t p) {
 }
 \end{lstlisting}
 
-Though only giving poor results about types, this approach has advantages: the decompilation is always possible after 
-disassembling, the type system contains just basic types (being mapped from IR types) and casts.
+Though only giving poor results about types, this approach has advantages: the decompilation is always 
+possible after raising, the type system contains basic types being mapped from IR types with casts.
 
 \subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
@@ -435,12 +435,13 @@ A more complex instance is \emph{incompatible types}, an example is given in~\Cr
 code for type analysis, it would be better to look at the cranelift IR version given in~\Cref{lst:divisionclift} 
 (since the binary type recovery eventually works on some IR).
 % As we can see $\mathtt{eax}$ (or $\mathtt{edi}$) behaves as it is of type signed and unsigned integer.
-Type constraints for $x$ and $y$ can be derived in a traditional way, for example with $x$
+TIE has troubles in deriving type constraints for $x$ and $y$, as with the case of symbolic constants, 
+e.g. with $x$
 \begin{equation*}
   \frac{\vdash \tau_{x} <\colon \mathtt{i32} \medspace (\text{since} \medspace \mathtt{sdiv}) \quad \vdash \tau_{x} <\colon \mathtt{u32} \medspace (\text{since} \medspace \mathtt{udiv})}
        {\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}}
 \end{equation*}
-TIE interprets $\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}$ as $x \in \left[0, 2^{31}-1\right]$, 
+while $\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}$ means $x \in [0, 2^{31}-1]$, 
 which is not a correct constraint; while Retypd uses \emph{union} for the meet 
 $\mathtt{i32} \sqcap \mathtt{u32}$, which is a reasonable result. Actually, the technique of using 
 union to combine incompatible types is \emph{type punning}, another approach is \emph{type casting} 
@@ -560,7 +561,7 @@ denote it $\tau$), then $\tau_{x} <\colon \tau$ and $\tau_{y} <\colon \tau$ (see
   \caption{Union as supertype}
   \label{fig:unionsupertype}
 \end{figure}
-The subtype relation between function types is derived as usual:
+The subtype relation between function types is derived as usual from return and parameter types:
 \begin{equation*}
   \frac{\tau'_{x} <\colon \tau_{x} \quad \tau_{y} <\colon \tau'_{y}}
        {\tau_{x} \to \tau_y <\colon \tau'_{x} \to \tau'_{y}}
