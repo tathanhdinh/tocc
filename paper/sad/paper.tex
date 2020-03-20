@@ -111,12 +111,13 @@ the programs. For example, the dynamic binary instrumentation framework Pin~\cit
 method \texttt{RTN\_Replace} (Routine Replace) which allows to replace a function in the binary by 
 another function, but it requires that the new signature must be the same as the replaced 
 one, another instrumentation tool Dyninst~\cite{bernat_anywhere_2011} has a similar method 
-\texttt{replaceFunction}. For static analysis, the exploit generation for mimicry attacks 
-given in~\cite{kruegel_automating_2005} requires a capability of
+\texttt{replaceFunction}. For static analysis, the automated function replacement and binary 
+recompilation~\cite{gupta_rewriting_2019} needs to know the signature of the replaced function, or
+the exploit generation for mimicry attacks given in~\cite{kruegel_automating_2005} requires a capability of
 \begin{quote}
 ...tracking function calls together with the corresponding parameters.
 \end{quote}
-just quote from the paper.
+quoting from the paper.
 
 \subsubsection*{Problem}
 Despite of successes in binary type recovery and the need for protecting function signatures, to the best
@@ -198,8 +199,8 @@ A broad survey for research on binary type recovery until 2015 is~\cite{caballer
 always with physical storage primitives (e.g. registers, memory), there are no essential differences 
 between types and physical data structures, so are the techniques to recover them. Actually, types are 
 logical compile-time constraints, they may or may not have storage imprints. An example is C's 
-type qualifier (\texttt{\small const}, \texttt{\small volatile}), and in general any
-\emph{refinement type} should not leave storage traces, the same thing with generics. More concretely, as
+type qualifier (\texttt{\small const}, \texttt{\small restrict}), and in general any
+refinement type~\cite{freeman_refinement_1991} should not leave any additional storage traces, the same thing with generics. More concretely, as
 we will present in the section, the \emph{low-level polymorphism} is a specific problem that binary type
 recovery techniques have to deal with.
 Also, the survey lacks some important
@@ -366,13 +367,12 @@ then the decompilation result (\Cref{lst:derefdec}). As we can see, RetDec does 
 it uses the System V ABI convention (the first parameter is passed via 
 \texttt{\small rdi}) to map $p$ to $\mathtt{i64}$, then casts expressions containing $p$ to the needed types.
 \begin{lstlisting}[language={LLVM}, caption={Pointer increment then dereference (LLVM)}, label={lst:derefllvm}]
-define i64 @inc_deref(i64 %p) {
-dec_label_pc_0:
-  %v1_0 = add i64 %p, 4
-  %v2_0 = inttoptr i64 %v1_0 to i32*
-  %v3_0 = load i32, i32* %v2_0, align 4
-  %v4_0 = zext i32 %v3_0 to i64
-  ret i64 %v4_0
+define i64 @foo(i64 %p) {
+  %v1 = add i64 %p, 4
+  %v2 = inttoptr i64 %v1 to i32*
+  %v3 = load i32, i32* %v2, align 4
+  %v4 = zext i32 %v3 to i64
+  ret i64 %v4
 }
 \end{lstlisting}
 \begin{lstlisting}[style={c},caption={Pointer increment then dereference (decompilation)},label={lst:derefdec}]
@@ -381,8 +381,9 @@ int64_t foo(int64_t p) {
 }
 \end{lstlisting}
 
-Though only giving poor results about types, this approach has advantages: the decompilation is always 
-possible after raising, the type system contains basic types being mapped from IR types with casts.
+Though having poor results about types, this approach has advantages: the decompilation is mostly
+straightforward from the raised IR, high-level types are primitive types being mapped directly from IR types 
+with casts.
 
 \subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
@@ -396,7 +397,7 @@ casts used in the source code which subvert the type checking. There are many
 instances of low-level polymorphism.
 % (i.e. types assigned by the high-level type system).
 
-% \subsubsection*{Captured instances} 
+\subsubsection*{Captured instances} 
 One of the first recognized instances is \emph{pointer arithmetic}; 
 the expression $p + c$ where $p$ is a pointer and $c$ is some constant, may be of type $\tau_{p}$ (same type with the pointer
 $p$) or just an unknown pointer type $\tau_{\alpha}$. This instance is captured by the type system
@@ -406,7 +407,9 @@ of Van Emmerik (as with TIE and Retypd). Another instance is \emph{symbolic cons
 %   \mathtt{xor} \quad \mathtt{rax}, \medspace \mathtt{rax}
 % \end{equation*}
 the register $\mathtt{rax}$ can be used both as an integer (of value $0$) and as a pointer
-(of value \texttt{NULL}); the instance is captured by Retypd only. 
+(of value \texttt{NULL}); Retypd detects this pattern and handles it by the code analysis, but not by
+the type system.
+  % the instance is recognized by Retypd only. 
 
 \begin{lstlisting}[language={[x86masm]Assembler},caption={Signed and unsigned division},label={lst:divisionasm}]
 1  mov eax, edi   ; eax = x
@@ -429,23 +432,27 @@ block0(x: $\tau_{x}$, y: $\tau_{y}$):
 }
 \end{lstlisting}
 
-\subsubsection*{Union}
-A more complex instance is \emph{incompatible types}, an example is given in~\Cref{lst:divisionasm} 
-(see~\Cref{lst:divisionc} for the source code). To avoid unnecessary details when using the assembly 
-code for type analysis, it would be better to look at the cranelift IR version given in~\Cref{lst:divisionclift} 
+\subsubsection*{Uncaptured instances}
+A more complex phenomenon but ubiquitous in low-level code is \emph{incompatible types}. An example is given in~\Cref{lst:divisionasm} 
+(see~\Cref{lst:divisionc} for the source code); to avoid unnecessary details of using the assembly 
+code for type analysis, it would be better to look at the cranelift IR~\cite{noauthor_cranelift_nodate} version given in~\Cref{lst:divisionclift} 
 (since the binary type recovery eventually works on some IR).
 % As we can see $\mathtt{eax}$ (or $\mathtt{edi}$) behaves as it is of type signed and unsigned integer.
-TIE has troubles in deriving type constraints for $x$ and $y$, as with the case of symbolic constants, 
+TIE has troubles in deriving type constraints for $x$ and $y$, 
+% as with the case of symbolic constants, 
 e.g. with $x$
 \begin{equation*}
   \frac{\vdash \tau_{x} <\colon \mathtt{i32} \medspace (\text{since} \medspace \mathtt{sdiv}) \quad \vdash \tau_{x} <\colon \mathtt{u32} \medspace (\text{since} \medspace \mathtt{udiv})}
        {\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}}
 \end{equation*}
 while $\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}$ means $x \in [0, 2^{31}-1]$, 
-which is not a correct constraint; while Retypd uses \emph{union} for the meet 
-$\mathtt{i32} \sqcap \mathtt{u32}$, which is a reasonable result. Actually, the technique of using 
-union to combine incompatible types is \emph{type punning}, another approach is \emph{type casting} 
-which is used by untyped decompilers discussed above.
+which is not a correct constraint. Retypd proposes using untagged \emph{union}, but without any further explicit 
+discussion.
+%  of how to handle this problem.
+% but it does not discuss any further 
+% for the meet $\mathtt{i32} \sqcap \mathtt{u32}$, which is a reasonable result. Actually, the technique of using 
+% union to combine incompatible types is \emph{type punning}, another approach is \emph{type casting} 
+% which is used by untyped decompilers discussed above.
 % This situation is captured in Retypd by a seemingly controversial rule:
 % $\alpha = \beta$ derives $\tau_{\beta} <\colon \tau_{\alpha}$ 
 % (while with TIE $\tau_{\alpha} = \tau_{\beta}$) which relaxes the type of $x$ in data copy 
@@ -472,6 +479,10 @@ may have different types. For example,
 the register \texttt{\small eax} at line 1 and line 6 in~\Cref{lst:divisionasm} are two identical copies of 
 the original argument $x$, but of different types.
 
+\subsubsection*{Remarks}
+The problem of symbolic constants is actually a particular case of incompatible types, indeed the value 
+$0$ behaves as it is of both type integer and pointer. Thus a better treatment would be using a more
+capable type system, in contrast with code analysis approach of Retypd.
 
 % In summary, incompatible types are combined using union. This technique is actually similar to the type casting 
 % approach of untyped decompilers discussed above.
