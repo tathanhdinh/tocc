@@ -188,7 +188,7 @@ current approaches on binary type inference and \emph{the problems they aim to s
 That gives some intuition about our goal and the techniques proposed to achieve this goal.
 %  which will be presented in the next section.
 
-From now on, unless otherwise stated, the (high-level) type system is that of C. We assume that the binaries are
+Throughout the paper, the (high-level) type system is that of C. We assume that the binaries are
 compiled by some C compiler from source codes, and binary type recovery means assigning C's types for
 low-level primitives. For illustration purpose, we use a pseudo-C syntax for low-level primitives
 (e.g. \texttt{\small mov rax, rdi} is expressed as $a = i$) but the concrete meaning is mostly direct from the context.
@@ -201,15 +201,15 @@ between types and physical data structures, so are the techniques to recover the
 logical compile-time constraints, they may or may not have storage imprints. An example is C's 
 type qualifier (\texttt{\small const}, \texttt{\small restrict}), and in general any
 refinement type~\cite{freeman_refinement_1991} should not leave any additional storage traces, the same thing with generics. More concretely, as
-we will present in the section, the \emph{low-level polymorphism} is a specific problem that binary type
+we will present in the second part of the section, the \emph{low-level polymorphism} is a specific problem that binary type
 recovery techniques have to deal with.
 Also, the survey lacks some important
 papers which are only published until later~\cite{noonan_polymorphic_2016,robbins_minx_2016}.
 
 We focus only on program semantics/type theoretical approaches, the research using machine learning~\cite{maier_typeminer_2019}
 or statistical language model~\cite{katz_estimating_2016} are out of scope of the paper.
-We omit the phase of variable/function detection, which is a vital step before
-type recovering, more details on this subject can be referenced in~\cite{balakrishnan_divine_2007}.
+We omit the phase of variable and function boundary detection, which is a vital step before
+type recovering, details on this subject can be referenced in~\cite{balakrishnan_divine_2007}.
 We avoid also difficulties in machine code disassembling, the binaries are assumed to be perfectly disassemblable.
 
 % \subsubsection*{Setting} From now on, unless otherwise stated, the target language is C.
@@ -237,14 +237,14 @@ since adding two pointers does not type check.
 The method of Mycroft has several limits, as pointed out by Van Emmerik~\cite{van_emmerik_static_2007}.
 One of them comes from the fact that the low-level languages take care mostly on the value of
 the computation, then (the result of) an expression can be used in several ways and it behaves as
-different types (see~\Cref{subsec:polymorphism}). Let's consider an assignment
+different types (see~\Cref{subsec:polymorphism}). Let us consider an assignment
 \begin{equation*}
   p' = p + n
 \end{equation*}
 where $\vdash p \colon \mathtt{ptr}(S)$ ($p$ is of type pointer to a struct $S$) and
 $\vdash n \colon \mathtt{int}$, Mycroft's
 rules derive $\vdash p' \colon \mathtt{ptr}(S)$ since $p + n$ is considered as the offset calculation to
-access some element of an array of $S$. But $p + n$ can be also an
+access some element of an array of $S$. But $p + n$ may be also an
 offset calculation to access some field of type, e.g. $\mathtt{int}$, of the struct $S$,
 then $\vdash p' \colon \mathtt{ptr}(\mathtt{int})$.
 
@@ -345,28 +345,28 @@ supports recursive types, while TIE cannot.
 
 
 \subsubsection*{Untyped decompilation}
-Some decompilers~\cite{noauthor_snowman_nodate,kroustek_retdec_2017} do not focus much on type analysis, 
-instead they focus on correct disassembling and high-level control structures recovering. That allows to 
-\emph{raise}~\cite{goodman_lifting_2018,yadavalli_raising_2019} the binary to an IR, then the type
-system of the IR is used directly to emulate high-level types. A notable example is the retargetable 
-decompiler RetDec~\cite{kroustek_retdec_2017} which raises binary codes to LLVM~\cite{lattner_llvm_2004}.
-To get the idea, let us consider the small piece of assembly code in~\Cref{lst:derefasm} (the original source code 
-is given in~\Cref{lst:derefc}).
+Some decompilers do not focus much on type analysis, 
+% instead they focus on correct disassembling and high-level control structures recovering. That allows to 
+after raising~\cite{goodman_lifting_2018,yadavalli_raising_2019} the binary code to an IR, they use 
+directly the type system of the IR to emulate high-level types. 
+% A notable example is the retargetable decompiler 
+% RetDec~\cite{kroustek_retdec_2017} which raises binary codes to LLVM~\cite{lattner_llvm_2004}.
+% To get the idea, 
+% Let us consider an example of RetDec~\cite{kroustek_retdec_2017}, the assembly code in~\Cref{lst:derefasm} (the original source code is 
+% in~\Cref{lst:derefc}) will be raised to LLVM (\Cref{lst:derefllvm}), then decompiled to C (\Cref{lst:derefdec}).
+% assembly code in~\Cref{lst:derefasm} (the original source code 
+% is given in~\Cref{lst:derefc}).
+Given the following example:
 \begin{lstlisting}[language={[x86masm]Assembler},caption={Pointer increment then dereference},label={lst:derefasm}]
 1  mov eax, [rdi+0x4]
 2  ret
 \end{lstlisting}
-\begin{lstlisting}[style={c},caption={Pointer increment then dereference (source)},label={lst:derefc}]
-int foo(int *x) {
-  x += 1;
-  return *x;
-}
-\end{lstlisting}
-RetDec raises the assembly code into LLVM (\Cref{lst:derefllvm}), 
-then the decompilation result (\Cref{lst:derefdec}). As we can see, RetDec does not bother to detect whether $p$ is a pointer to $\mathtt{int}$, 
-it uses the System V ABI convention (the first parameter is passed via 
-\texttt{\small rdi}) to map $p$ to $\mathtt{i64}$, then casts expressions containing $p$ to the needed types.
-\begin{lstlisting}[language={LLVM}, caption={Pointer increment then dereference (LLVM)}, label={lst:derefllvm}]
+% RetDec raises the assembly code into LLVM (\Cref{lst:derefllvm}), 
+% then decompiles to C (\Cref{lst:derefdec}). As we can see, RetDec does not bother to detect whether $p$ is a pointer to $\mathtt{int}$, 
+% it uses the System V ABI convention (the first parameter is passed via 
+% \texttt{\small rdi}) to map $p$ to $\mathtt{i64}$, then casts expressions containing $p$ to the needed types.
+RetDec~\cite{kroustek_retdec_2017} will raise this code to LLVM:
+\begin{lstlisting}[language={LLVM}, caption={Pointer increment then dereference (raised LLVM)}, label={lst:derefllvm}]
 define i64 @foo(i64 %p) {
   %v1 = add i64 %p, 4
   %v2 = inttoptr i64 %v1 to i32*
@@ -375,15 +375,40 @@ define i64 @foo(i64 %p) {
   ret i64 %v4
 }
 \end{lstlisting}
-\begin{lstlisting}[style={c},caption={Pointer increment then dereference (decompilation)},label={lst:derefdec}]
+then decompiles to C:
+\begin{lstlisting}[style={c},caption={Pointer increment then dereference (decompiled)},label={lst:derefdec}]
 int64_t foo(int64_t p) {
   return (int64_t)*(int32_t *)(p + 4);
 }
 \end{lstlisting}
+The decompiler does not bother if $p$ is a pointer to $\mathtt{int}$ or not (see the original source code in~\Cref{lst:derefc}), 
+just uses the ABI 
+(the first parameter is passed via \texttt{\small rdi}) to type $p$ as $\mathtt{int64\_t}$, 
+then casts\footnote{This cast is somehow incorrect since the sign bit of 
+$\mathtt{int32\_t}$ is propagated to $\mathtt{int64\_t}$, actually it is a zero extension.} the type of 
+$p + 4$ as $\mathtt{int32\_t}*$.
+\begin{lstlisting}[style={c},caption={Pointer increment then dereference (original)},label={lst:derefc}]
+int foo(int *p) {
+  return *(p + 1);
+}
+\end{lstlisting}
+The types recovered by such a decompiler are poor, they are mostly primitive types being mapped directly from IR types 
+with casts. Even worse, using the integer type for different pointer types (and casting back when needed) 
+makes the underlying types indistinguishable and this may lead to undefined behaviors.
 
-Though having poor results about types, this approach has advantages: the decompilation is mostly
-straightforward from the raised IR, high-level types are primitive types being mapped directly from IR types 
-with casts.
+% this can lead to incorrect results because type casting is not always safe. 
+
+% The recovered types are poor, they are mostly primitive types being mapped directly from IR types 
+% with casts. Even worse, this can lead to incorrect results because type casting is not always safe. 
+% For the example above, there may exist a pointer misalignment: $\mathtt{p} + 4$ may
+% not be a valid address for a $\mathtt{int32\_t}$ pointer.
+% , and a $\mathtt{int32\_t}$ pointer cannot always
+% cast to a $\mathtt{int64\_t}$ pointer.
+% This approach has poor result about types, high-level types are primitive types being mapped directly from IR types 
+% with casts.
+% Though having poor results about types, this approach has advantages: the decompilation is mostly
+% straightforward from the raised IR, high-level types are primitive types being mapped directly from IR types 
+% with casts.
 
 \subsection{Polymorphism}\label{subsec:polymorphism}
 \noindent
@@ -400,14 +425,14 @@ instances of low-level polymorphism.
 \subsubsection*{Captured instances} 
 One of the first recognized instances is \emph{pointer arithmetic}; 
 the expression $p + c$ where $p$ is a pointer and $c$ is some constant, may be of type $\tau_{p}$ (same type with the pointer
-$p$) or just an unknown pointer type $\tau_{\alpha}$. This instance is captured by the type system
+$p$) or some unknown pointer type $\tau_{\alpha}$. This instance is captured by the type system
 of Van Emmerik (as with TIE and Retypd). Another instance is \emph{symbolic constants}, e.g. after being reset
 \texttt{\small xor rax,rax},
 % \begin{equation*}
 %   \mathtt{xor} \quad \mathtt{rax}, \medspace \mathtt{rax}
 % \end{equation*}
 the register $\mathtt{rax}$ can be used both as an integer (of value $0$) and as a pointer
-(of value \texttt{NULL}); Retypd detects this pattern and handles it by the code analysis, but not by
+(of value \texttt{NULL}); Retypd detects such patterns and handles them by the code analysis, not by
 the type system.
   % the instance is recognized by Retypd only. 
 
@@ -433,7 +458,7 @@ block0(x: $\tau_{x}$, y: $\tau_{y}$):
 \end{lstlisting}
 
 \subsubsection*{Uncaptured instances}
-A more complex phenomenon but ubiquitous in low-level code is \emph{incompatible types}. An example is given in~\Cref{lst:divisionasm} 
+A more complex phenomenon but ubiquitous in low-level code is \emph{incompatible types}. An example is in~\Cref{lst:divisionasm} 
 (see~\Cref{lst:divisionc} for the source code); to avoid unnecessary details of using the assembly 
 code for type analysis, it would be better to look at the cranelift IR~\cite{noauthor_cranelift_nodate} version given in~\Cref{lst:divisionclift} 
 (since the binary type recovery eventually works on some IR).
@@ -445,8 +470,8 @@ e.g. with $x$
   \frac{\vdash \tau_{x} <\colon \mathtt{i32} \medspace (\text{since} \medspace \mathtt{sdiv}) \quad \vdash \tau_{x} <\colon \mathtt{u32} \medspace (\text{since} \medspace \mathtt{udiv})}
        {\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}}
 \end{equation*}
-while $\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}$ means $x \in [0, 2^{31}-1]$, 
-which is not a correct constraint. Retypd proposes using untagged \emph{union}, but without any further explicit 
+while $\vdash \tau_{x} <\colon \mathtt{i32} \sqcap \mathtt{u32}$ means $x \in [0, 2^{32}-1]$, 
+which does not represent the semantics of type casting. Retypd proposes using (untagged) \emph{union}, but without any further explicit 
 discussion.
 %  of how to handle this problem.
 % but it does not discuss any further 
@@ -480,9 +505,9 @@ the register \texttt{\small eax} at line 1 and line 6 in~\Cref{lst:divisionasm} 
 the original argument $x$, but of different types.
 
 \subsubsection*{Remarks}
-The problem of symbolic constants is actually a particular case of incompatible types, indeed the value 
-$0$ behaves as it is of both type integer and pointer. Thus a better treatment would be using a more
-capable type system, in contrast with code analysis approach of Retypd.
+The problem of symbolic constants can be considered as a particular case of incompatible types, indeed the value 
+$0$ behaves as being both of type integer and pointer. Thus a better treatment would be using a more
+flexible type system, in contrast with code analysis approach of Retypd.
 
 % In summary, incompatible types are combined using union. This technique is actually similar to the type casting 
 % approach of untyped decompilers discussed above.
@@ -659,7 +684,7 @@ preciseness of the type inference.
 
 \subsubsection*{Data-flow disrupting}
 A direct technique for type flattening is to disrupt the data-flow analysis, that is done by
-introducing \emph{pointer aliases}. Let's look at the
+introducing \emph{pointer aliases}. Let us look at the
 piece of code in~\Cref{lst:directmov}, for illustration purpose we have used a pseudo-C syntax but only
 put type annotation on the variables whose types are supposed to be already known.
 \begin{lstlisting}[style={c},caption={Direct data movement},label={lst:directmov}]
